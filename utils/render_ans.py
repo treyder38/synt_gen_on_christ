@@ -42,7 +42,6 @@ def _bbox_px_to_rect_pt(
 def render_blocks_json_to_pdf(
     json_path: str,
     out_pdf_path: Optional[str],
-    *,
     draw_frames: bool = True,
     style_map: Optional[Dict[str, Dict[str, float]]] = None,
     picture_path : str | Path | None = None

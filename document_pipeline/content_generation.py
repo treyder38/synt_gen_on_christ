@@ -15,6 +15,8 @@ Here are the requirements:
 5. Document MUST contain from 300 to 400 words.
 6. Structure requirements:
 - Start with a clear TITLE on the first line (1 sentence, no bullet/numbering).
+- Do NOT use markdown headings with # symbols. Use plain text headers without any leading symbols.
+- Do NOT use asterisks for emphasis or formatting. Use plain text only.
 - If there are mulitple paragraphs, include a short header before each of them.
 - If lists are helpful for clarity, include bullet list OR numbered list. Do NOT force lists into every document.
 - Any list must be contextually appropriate (e.g., steps, criteria, pros/cons, checklist). If not appropriate, use normal paragraphs instead.

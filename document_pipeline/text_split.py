@@ -1,69 +1,72 @@
-import os
-import json
-from typing import Any, Dict
-from openai import OpenAI
+import re
+from typing import Dict, List
 
 
-GENERATE_TEXT_SPLIT_PROMPT = """You are given a text inside <data>. Your job is to split that text into logical text blocks.
+def split_to_blocks(text: str) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Return:
+    {
+      "blocks": [
+        {"id":"b1","type":"title|header|paragraph","content":"..."},
+        ...
+      ]
+    }
+    Title is always taken from the FIRST paragraph (first block separated by blank lines).
+    """
 
-<data>
-{data}
-</data>
+    def norm(s: str) -> str:
+        return re.sub(r"\s+", " ", s).strip()
 
-OUTPUT (MANDATORY):
-Return ONE valid JSON object with EXACTLY this structure:
-{{
-  "blocks": [
-    {{ "id": "b1", "type": "title", "content": "..." }},
-    {{ "id": "b2", "type": "header", "content": "..." }},
-    {{ "id": "b3", "type": "paragraph", "content": "..." }}
-  ]
-}}
+    def strip_md_heading(s: str) -> str:
+        return re.sub(r"^\s*#{1,6}\s*", "", s).strip()
 
-RULES (follow ALL):
-1) Allowed block types ONLY: "title", "header", "paragraph".
-2) VERBATIM TEXT ONLY:
-   - Do NOT summarize, shorten, paraphrase, rewrite, translate, or correct the text.
-   - Every "content" MUST be copied verbatim from <data> (same wording, punctuation, numbers, and casing).
-3) COMPLETE COVERAGE:
-   - ALL text from <data> MUST appear in the output blocks.
-   - Do NOT drop any characters/sentences.
-   - Do NOT duplicate any text between blocks.
-4) CONTIGUOUS SLICES + ORDER:
-   - Each block's "content" MUST be a contiguous substring of <data>.
-   - Blocks MUST preserve the original order of the text.
-5) SPLITTING HEURISTICS:
-   - Separate the main title into a single "title" block (if it exists).
-   - Each section heading/subheading MUST be its own "header" block.
-   - Each paragraph MUST be its own "paragraph" block.
-   - If the text contains bullet/numbered items (e.g., lines starting with "-", "–", "—", "•", "*", or "1.", "1)", "2.", etc.), then ALL contiguous list lines MUST be kept together inside ONE single "paragraph" block (verbatim).
-   - If a paragraph is long, split it into multiple "paragraph" blocks at natural sentence boundaries (without removing any text).
-6) IDS:
-   - "id" must be unique and sequential: b1, b2, b3, ...
-   """
+    def is_header(line: str) -> bool:
+        s = strip_md_heading(norm(line))
+        if not s:
+            return False
+        # avoid list items
+        if re.match(r"^([-*•]|\d+[.)])\s+", s):
+            return False
+        words = s.split()
+        if s.endswith(":") and len(words) <= 20:
+            return True
+        if len(words) <= 12 and not re.search(r"[.!?…]\s*$", s):
+            return True
+        return False
 
+    # normalize newlines
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return {"blocks": []}
 
-def generate_split_json(model: str, text: str) -> str:
+    blocks: List[Dict[str, str]] = []
+    bid = 1
 
-    base_url = os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1")
-    api_key = os.environ.get("VLLM_API_KEY", "EMPTY")
+    # split text into paragraph-ish chunks by blank lines
+    raw_blocks = [b.strip() for b in re.split(r"\n\s*\n+", text) if b.strip()]
 
-    client = OpenAI(
-        base_url=base_url,
-        api_key=api_key,
-    )
-    prompt = GENERATE_TEXT_SPLIT_PROMPT.format(data=text)
-    
-    completion = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "Return ONLY valid JSON. No extra text."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.35,
-        max_tokens=4000,
-    )
+    # Title is always the first paragraph
+    title_chunk = raw_blocks[0]
+    title_text = strip_md_heading(norm(title_chunk))
+    blocks.append({"id": f"b{bid}", "type": "title", "content": title_text})
+    bid += 1
 
-    text = (completion.choices[0].message.content or "").strip()
-    obj: Dict[str, Any] = json.loads(text)
-    return obj
+    # Process remaining chunks
+    for chunk in raw_blocks[1:]:
+        chunk_lines = [ln.strip() for ln in chunk.splitlines() if ln.strip()]
+        if not chunk_lines:
+            continue
+
+        # peel off consecutive headers at the top of the chunk
+        i = 0
+        while i < len(chunk_lines) and is_header(chunk_lines[i]):
+            blocks.append({"id": f"b{bid}", "type": "header", "content": strip_md_heading(norm(chunk_lines[i]))})
+            bid += 1
+            i += 1
+
+        rest = "\n".join(chunk_lines[i:]).strip()
+        if rest:
+            blocks.append({"id": f"b{bid}", "type": "paragraph", "content": rest})
+            bid += 1
+
+    return {"blocks": blocks}
