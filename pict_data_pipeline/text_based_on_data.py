@@ -22,7 +22,10 @@ Here are the requirements:
 2. The text must be realistic and grounded in real-world context. Use real-world entities, names, places, dates, and organizations when they are present in the data.
    Do NOT introduce placeholder names such as xxA, xxB, John Doe, or template markers like [Name], [Date], etc.
 3. The text should cover different relevant aspects implied by the data to make the document informative, but concise.
-4. The output must be written entirely in Russian, even if the persona is non-Russian."""
+4. The output must be written entirely in Russian, even if the persona is non-Russian.
+5. Structure requirements:
+- Start with a clear TITLE on the first line (1 sentence, no bullet/numbering).
+- Do NOT use asterisks for emphasis or formatting. Use plain text only."""
 
 
 def generate_text(persona: str, topic: str, model: str, data: str) -> str:
@@ -40,13 +43,12 @@ def generate_text(persona: str, topic: str, model: str, data: str) -> str:
     completion = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "Return ONLY a single valid JSON object with only the 'main_text' field. No extra text."},
+            {"role": "system", "content": "Return ONLY the document body as plain text in Russian. Do not add any extra commentary."},
             {"role": "user", "content": prompt},
         ],
         temperature=0.7,
-        max_tokens=2000,
+        max_tokens=3000,
     )
 
     text = (completion.choices[0].message.content or "").strip()
-    obj: Dict[str, Any] = json.loads(text)
-    return obj["main_text"]
+    return text

@@ -1,4 +1,5 @@
 import json
+import random
 from typing import Any, Dict, List, Optional
 
 from PIL import Image
@@ -22,6 +23,10 @@ def generate_json_with_sizes(
     {
       "blocks": [... same blocks ... with "bbox_size": [w_px, h_px] ...]
     }
+
+    Note: max_width_px is chosen per-block based on a random split boundary:
+      - blocks before split get max_width_px=2080
+      - blocks after split get max_width_px=1040
     """
     if isinstance(layout_json, str):
         obj: Dict[str, Any] = json.loads(layout_json)
@@ -31,7 +36,13 @@ def generate_json_with_sizes(
     style_map = style_map or {}
     out_blocks: List[Dict[str, Any]] = []
 
-    for b in obj["blocks"]:
+    n_blocks = len(obj.get("blocks", []))
+    if n_blocks <= 1:
+        split_idx = n_blocks
+    else:
+        split_idx = random.randint(0, n_blocks)
+
+    for i, b in enumerate(obj["blocks"]):
         b_type = b.get("type")
         content = b.get("content", "")
 
@@ -44,13 +55,20 @@ def generate_json_with_sizes(
                 raise ValueError("style_map must contain a dict for 'paragraph' with font_name/font_size/leading")
 
             dpi = int(style_map.get("dpi"))
-            max_width_px = int(style_map.get("max_width_px"))
             padding_pt = float(style_map.get("padding_pt"))
             height_safety_factor = float(style_map.get("height_safety_factor"))
 
             font_name = str(style["font_name"])
             font_size_pt = float(style["font_size"])
             leading_pt = float(style["leading"])
+
+            if b_type == "title":
+                max_width_px = random.choice([2080, 1040])
+            else:
+                if i < split_idx:
+                    max_width_px = 2080
+                else:
+                    max_width_px = 1040
 
             w, h = measure_bbox_size_for_block(
                 content,
@@ -73,18 +91,27 @@ def generate_json_with_sizes(
                 except Exception:
                     pass
 
+            # Choose figure max width similar to text blocks
+            if i < split_idx:
+                max_width_px = 2080
+            else:
+                max_width_px = 1040
+
             if picture_path is None:
                 raise ValueError("picture_path must be provided when a block has type='figure'")
 
             with Image.open(picture_path) as im:
                 w0, h0 = im.size
 
-            scale = min(page_w_px / float(w0), page_h_px / float(h0), 1.0)
-            w = max(1, int(round(w0 * scale)))
+            # Force figure width to exactly max_width_px (no constraint on height here)
+            scale = max_width_px / float(w0)
+            w = int(max_width_px)
             h = max(1, int(round(h0 * scale)))
 
         b2 = dict(b)
         b2["bbox_size"] = [int(w), int(h)]
+        if b_type == "figure":
+            b2["max_width_px"] = int(max_width_px)
         out_blocks.append(b2)
 
     return {"blocks": out_blocks}

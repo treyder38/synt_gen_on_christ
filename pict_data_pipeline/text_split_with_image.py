@@ -1,86 +1,80 @@
-import os
-import json
-from typing import Any, Dict
-from openai import OpenAI
+import re
+import random
+from typing import Dict, List
 
 
-GENERATE_TEXT_SPLIT_PROMPT = """You are given a text inside <data>. Your job is to split that text into logical text blocks.
+def split_to_blocks(text: str, figure_type: str) -> Dict[str, List[Dict[str, str]]]:
+    """
+    Return:
+    {
+      "blocks": [
+        {"id":"b1","type":"title|header|paragraph|figure","content":"..."},
+        ...
+      ]
+    }
+    Title is always taken from the FIRST paragraph (first block separated by blank lines).
+    """
 
-<data>
-{data}
-</data>
+    def norm(s: str) -> str:
+        return re.sub(r"\s+", " ", s).strip()
 
-OUTPUT (MANDATORY):
-Return ONE valid JSON object with EXACTLY this structure:
-{{
-  "blocks": [
-    {{ "id": "b1", "type": "title", "content": "..." }},
-    {{ "id": "b2", "type": "header", "content": "..." }},
-    {{ "id": "b3", "type": "paragraph", "content": "..." }},
-    {{
-      "id": "b4",
-      "type": "figure",
-      "figure_type": "{figure_type}"
-    }}
-  ],
-  "reading_order": ["b1", "b2", "b3", "b4"]
-}}
+    def strip_md_heading(s: str) -> str:
+        return re.sub(r"^\s*#{1,6}\s*", "", s).strip()
 
-RULES (follow ALL):
-1) Allowed block types ONLY: "title", "header", "paragraph", "figure".
-2) EXACTLY ONE IMAGE BLOCK:
-   - The output MUST contain exactly ONE block with "type": "figure".
-   - That figure block MUST have EXACTLY this structure (no "content" field):
-     {{
-       "id": "<unique id>",
-       "type": "figure",
-       "figure_type": "{figure_type}"
-     }}
-   - Use integers for bbox values.
-   - The figure block MAY be placed anywhere in the blocks list, but it MUST appear in reading_order.
-3) VERBATIM TEXT ONLY:
-   - Do NOT summarize, shorten, paraphrase, rewrite, translate, or correct the text.
-   - Every "content" for text block MUST be copied verbatim from <data> (same wording, punctuation, numbers, and casing).
-4) COMPLETE COVERAGE:
-   - ALL text from <data> MUST appear in the output blocks.
-   - Do NOT drop any characters/sentences.
-   - Do NOT duplicate any text between blocks.
-5) CONTIGUOUS SLICES + ORDER:
-   - Each text block's "content" MUST be a contiguous substring of <data>.
-   - Blocks MUST preserve the original order of the text.
-6) SPLITTING HEURISTICS:
-   - Separate the main title into a single "title" block (if it exists).
-   - Each section heading/subheading MUST be its own "header" block.
-   - Each paragraph MUST be its own "paragraph" block.
-   - If the text contains bullet/numbered items (e.g., lines starting with "-", "–", "—", "•", "*", or "1.", "1)", "2.", etc.), then ALL contiguous list lines MUST be kept together inside ONE single "paragraph" block (verbatim).
-   - If a paragraph is long, split it into multiple "paragraph" blocks at natural sentence boundaries (without removing any text).
-7) IDS:
-   - "id" must be unique and sequential: b1, b2, b3, ...
-"""
+    def is_header(line: str) -> bool:
+        s = strip_md_heading(norm(line))
+        if not s:
+            return False
+        # avoid list items
+        if re.match(r"^([-*•]|\d+[.)])\s+", s):
+            return False
+        words = s.split()
+        if s.endswith(":") and len(words) <= 20:
+            return True
+        if len(words) <= 12 and not re.search(r"[.!?…]\s*$", s):
+            return True
+        return False
 
+    # normalize newlines
+    text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not text:
+        return {"blocks": []}
 
-def generate_split_json(model: str, text: str, figure_type: str) -> str:
-    
-    base_url = os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1")
-    api_key = os.environ.get("VLLM_API_KEY", "EMPTY")
+    blocks: List[Dict[str, str]] = []
+    bid = 1
 
-    client = OpenAI(
-        base_url=base_url,
-        api_key=api_key,
-    )
+    # split text into paragraph-ish chunks by blank lines
+    raw_blocks = [b.strip() for b in re.split(r"\n\s*\n+", text) if b.strip()]
 
-    prompt = GENERATE_TEXT_SPLIT_PROMPT.format(data=text, figure_type=figure_type)
-    
-    completion = client.chat.completions.create(
-        model=model,
-        messages=[
-            {"role": "system", "content": "Return ONLY a single valid JSON object. No extra text."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.35,
-        max_tokens=4500,
-    )
+    # Title is always the first paragraph
+    title_chunk = raw_blocks[0]
+    title_text = strip_md_heading(norm(title_chunk))
+    blocks.append({"id": f"b{bid}", "type": "title", "content": title_text})
+    bid += 1
 
-    text = (completion.choices[0].message.content or "").strip()
-    obj: Dict[str, Any] = json.loads(text)
-    return obj
+    # Process remaining chunks
+    for chunk in raw_blocks[1:]:
+        chunk_lines = [ln.strip() for ln in chunk.splitlines() if ln.strip()]
+        if not chunk_lines:
+            continue
+
+        # peel off consecutive headers at the top of the chunk
+        i = 0
+        while i < len(chunk_lines) and is_header(chunk_lines[i]):
+            blocks.append({"id": f"b{bid}", "type": "header", "content": strip_md_heading(norm(chunk_lines[i]))})
+            bid += 1
+            i += 1
+
+        rest = "\n".join(chunk_lines[i:]).strip()
+        if rest:
+            blocks.append({"id": f"b{bid}", "type": "paragraph", "content": rest})
+            bid += 1
+
+    insert_idx = random.randint(1, len(blocks))
+    blocks.insert(insert_idx, {"id": "__FIGURE__", "type": "figure", "figure_type": f"{figure_type}", "content": ""})
+
+    # Re-number ids in the final order to preserve ordering
+    for idx, b in enumerate(blocks, start=1):
+        b["id"] = f"b{idx}"
+
+    return {"blocks": blocks}

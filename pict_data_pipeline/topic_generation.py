@@ -7,10 +7,9 @@ My persona is: "{persona}"
 I want you to generate the topic for {figure_type} that I will be interested in or I may see during my daily life given my persona.
 
 Here are the requirements:
-1. The topic is a high-level summary of statistical distribution with some details, e.g., "population growth in the US with a breakdown of the age groups."
-2. The topic should be diverse to help me generate varied figures.
-3. The topic is conditioned on the figure type. Please ensure the topic you provided can be best visualized in "{figure_type}".
-4. The topic must be in Russian, even if the persona is non-Russian."""
+1. The topic is a high-level summary of statistical distribution with some details, e.g., "population growth in Russia with a breakdown of the age groups."
+2. The topic is conditioned on the figure type. Please ensure the topic you provided can be best visualized in "{figure_type}".
+3. The topic must be in Russian, even if the persona is non-Russian."""
 
 def generate_topic(persona: str, model: str, figure_type: str) -> str:
 

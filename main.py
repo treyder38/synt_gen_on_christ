@@ -61,7 +61,6 @@ def sample_persona(path: str, seed: Optional[int] = None) -> str:
 if __name__ == "__main__":
 
     style_map = {
-        "max_width_px": 1040,
         "dpi": 300,
         "padding_pt": 3.0,
         "height_safety_factor": 1.0,
