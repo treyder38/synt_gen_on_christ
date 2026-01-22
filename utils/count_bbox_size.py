@@ -1,5 +1,6 @@
 from typing import List, Tuple
 from reportlab.pdfbase import pdfmetrics
+import math
 
 
 def pt_to_px(pt: float, dpi: int = 300) -> float:
@@ -108,3 +109,27 @@ def measure_bbox_size_for_block(
     w = max(1, w)
     h = max(1, h)
     return w, h
+
+def measure_bbox_size_for_one_word(
+    text: str,
+    *,
+    font_name: str,
+    font_size_pt: float,
+    dpi: int,
+) -> tuple[int, int]:
+    """Tight bbox for a single token (no padding/leading/wrapping).
+
+    Uses ReportLab font metrics: string width + ascent/descent.
+    """
+    if not isinstance(text, str) or not text:
+        return (1, 1)
+
+    w_pt = float(pdfmetrics.stringWidth(text, font_name, font_size_pt))
+    asc_pt = float(pdfmetrics.getAscent(font_name, font_size_pt))
+    desc_pt = float(pdfmetrics.getDescent(font_name, font_size_pt))  # usually negative
+    h_pt = max(1e-6, asc_pt - desc_pt)
+
+    scale = float(dpi) / 72.0
+    w_px = max(1, int(math.ceil(w_pt * scale)))
+    h_px = max(1, int(math.ceil(h_pt * scale)))
+    return (w_px, h_px)

@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import re
 import numpy as np
 import albumentations as A
 from pathlib import Path
@@ -11,10 +13,25 @@ from document_pipeline.topic_generation import generate_topic
 from document_pipeline.content_generation import generate_text
 from document_pipeline.text_split import split_to_blocks
 from document_pipeline.layout_generation import generate_layout
-from utils.generate_json import generate_json_with_sizes
+from utils.generate_json_with_sizes import generate_json_with_sizes
 from utils.render_ans import render_blocks_json_to_pdf
 
 logger = logging.getLogger(__name__)
+
+
+OUT_ROOT = Path("/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out")
+
+
+def _make_next_run_dir() -> Path:
+    """Create out/run{N} where N == number of existing run* directories."""
+    OUT_ROOT.mkdir(parents=True, exist_ok=True)
+
+    run_dirs = [p for p in OUT_ROOT.iterdir() if p.is_dir() and p.name.startswith("run")]
+    n = len(run_dirs)
+
+    run_dir = OUT_ROOT / f"run{n}"
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return run_dir
 
 
 def _bleed_through_image(x, **kwargs):
@@ -111,6 +128,9 @@ def doc_pipeline(sampled_persona: str, style_map: Optional[Dict[str, Dict[str, f
 
     MODEL = "Qwen/Qwen2.5-32B-Instruct"
 
+    run_dir = _make_next_run_dir()
+    logger.info("Run directory: %s", str(run_dir))
+
     topic = generate_topic(sampled_persona, model = MODEL)
     logger.info("Topic: %s", topic)
 
@@ -118,37 +138,37 @@ def doc_pipeline(sampled_persona: str, style_map: Optional[Dict[str, Dict[str, f
     logger.info("Text: %s", text)
 
     split_json = split_to_blocks(text)
-    out_path = "/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/split.json"
+    out_path = run_dir / "split.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(split_json, f, ensure_ascii=False, indent=2)
-    logger.info("Split saved to: %s", out_path)
+    logger.info("Split saved to: %s", str(out_path))
 
     json_with_bbox_sizes = generate_json_with_sizes(split_json, style_map=style_map)
-    out_path = "/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/json_with_bbox_sizes.json"
+    out_path = run_dir / "json_with_bbox_sizes.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(json_with_bbox_sizes, f, ensure_ascii=False, indent=2)
-    logger.info("json_with_bbox_sizes saved to: %s", out_path)
+    logger.info("json_with_bbox_sizes saved to: %s", str(out_path))
 
-    final_layout = generate_layout(data=json_with_bbox_sizes)
-    out_path = "/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/ans.json"
+    final_layout = generate_layout(data=json_with_bbox_sizes, style_map=style_map)
+    out_path = run_dir / "ans.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(final_layout, f, ensure_ascii=False, indent=2)
-    logger.info("Layout saved to: %s", out_path)
+    logger.info("Layout saved to: %s", str(out_path))
 
     pdf_path = render_blocks_json_to_pdf(
-        json_path="/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/ans.json",
-        out_pdf_path="/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/out.pdf",
-        draw_frames=False,
-        style_map=style_map
+        json_path=str(run_dir / "ans.json"),
+        out_pdf_path=str(run_dir / "out.pdf"),
+        draw_frames=True,
+        draw_word_bboxes=True,
+        style_map=style_map,
     )
     logger.info("Render saved to: %s", pdf_path)
 
-    aug_img_path = "/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/doc.png"
-    augmented_path = augment_image(
-        in_pdf_path=pdf_path,
-        out_image_path=aug_img_path,
-        dpi=300,
-        jpeg_quality_range=(35, 95),
-    )
-    if augmented_path is not None:
-        logger.info("Augmented page saved to: %s", augmented_path)
+    # aug_img_path = "/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/doc.png"
+    # augmented_path = augment_image(
+    #     in_pdf_path=pdf_path,
+    #     out_image_path=aug_img_path,
+    #     dpi=300,
+    #     jpeg_quality_range=(35, 95),
+    # )
+    # logger.info("Augmented page saved to: %s", augmented_path)

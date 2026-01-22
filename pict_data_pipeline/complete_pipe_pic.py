@@ -8,7 +8,7 @@ from pict_data_pipeline.code_generation import generate_code, save_generated_ima
 from pict_data_pipeline.text_based_on_data import generate_text
 from pict_data_pipeline.text_split_with_image import split_to_blocks
 from pict_data_pipeline.layout_generation_with_image import generate_layout
-from utils.generate_json import generate_json_with_sizes
+from utils.generate_json_with_sizes import generate_json_with_sizes
 from utils.render_ans import render_blocks_json_to_pdf
 
 import logging

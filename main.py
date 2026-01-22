@@ -1,4 +1,5 @@
 import json
+import os
 import random
 from typing import Any, Optional
 from argparse import ArgumentParser
@@ -16,7 +17,8 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-def register_fonts(style_map: dict[str, Any], fonts_dir: str = "/home/jovyan/people/Glebov/synt_gen_2/fonts") -> None:
+
+def register_fonts(style_map: dict[str, Any], fonts_dir: str = "/home/jovyan/people/Glebov/synt_gen_2/ruhw_fonts/") -> None:
     """Register all fonts referenced in style_map.
 
     Expects per-block styles like:
@@ -41,6 +43,32 @@ def register_fonts(style_map: dict[str, Any], fonts_dir: str = "/home/jovyan/peo
         except Exception as e:
             logger.warning("Failed to register font '%s' from '%s': %s", font_name, path, e)
 
+
+def sample_random_fonts_for_style_map(style_map: dict[str, Any], fonts_dir: str, *, seed: Optional[int] = None) -> None:
+    """Pick a random font for each per-block style (e.g., title/header/paragraph).
+
+    Expects fonts as .ttf files inside `fonts_dir`. Updates style_map in-place.
+    """
+    if seed is not None:
+        random.seed(seed)
+
+    try:
+        files = os.listdir(fonts_dir)
+    except Exception as e:
+        raise RuntimeError(f"Failed to list fonts_dir={fonts_dir}: {e}")
+
+    font_names = sorted({f[:-4] for f in files if f.lower().endswith(".ttf")})
+    if not font_names:
+        raise RuntimeError(f"No .ttf fonts found in {fonts_dir}")
+
+    # Choose distinct fonts when possible
+    block_keys = [k for k, v in style_map.items() if isinstance(v, dict) and "font_name" in v]
+    picks = random.sample(font_names, k=min(len(block_keys), len(font_names)))
+
+    for i, key in enumerate(block_keys):
+        style_map[key]["font_name"] = picks[i % len(picks)]
+
+
 def sample_persona(path: str, seed: Optional[int] = None) -> str:
     """
     Samples a persona string from a .jsonl file.
@@ -58,18 +86,24 @@ def sample_persona(path: str, seed: Optional[int] = None) -> str:
 
     return random.choice(personas)
 
+
 if __name__ == "__main__":
 
     style_map = {
         "dpi": 300,
         "padding_pt": 3.0,
         "height_safety_factor": 1.0,
-        "title": {"font_size": 18.0, "leading": 22.0, "font_name": "Caveat-Bold"},
-        "header": {"font_size": 12.0, "leading": 12.0, "font_name": "Caveat-SemiBold"},
-        "paragraph": {"font_size": 15.0, "leading": 13.0, "font_name": "Caveat-Regular"},
+        "title": {"font_size": 18.0, "leading": 18.0, "font_name": "Caveat-Bold"},
+        "header": {"font_size": 12.0, "leading": 10.0, "font_name": "Caveat-SemiBold"},
+        "paragraph": {"font_size": 15.0, "leading": 12.0, "font_name": "Caveat-Regular"},
     }
-    
-    register_fonts(style_map)
+
+    fonts_dir = "/home/jovyan/people/Glebov/synt_gen_2/ruhw_fonts"
+    sample_random_fonts_for_style_map(style_map, fonts_dir)
+    register_fonts(style_map, fonts_dir=fonts_dir)
+
+    logger.info("Random fonts chosen: title=%s, header=%s, paragraph=%s",
+                style_map["title"]["font_name"], style_map["header"]["font_name"], style_map["paragraph"]["font_name"])
 
     parser = ArgumentParser()
     parser.add_argument(
