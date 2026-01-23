@@ -6,6 +6,7 @@ from argparse import ArgumentParser
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 import logging
+from pathlib import Path
 
 from pict_data_pipeline.complete_pipe_pic import pic_pipeline 
 from document_pipeline.complete_pipe_doc import doc_pipeline
@@ -16,6 +17,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+
 
 
 def register_fonts(style_map: dict[str, Any], fonts_dir: str = "/home/jovyan/people/Glebov/synt_gen_2/ruhw_fonts/") -> None:
@@ -36,8 +38,29 @@ def register_fonts(style_map: dict[str, Any], fonts_dir: str = "/home/jovyan/peo
             if fn:
                 font_names.add(fn)
 
+    # Build a lookup of available font files by lowercase stem for robust matching
+    try:
+        available = os.listdir(fonts_dir)
+    except Exception as e:
+        raise RuntimeError(f"Failed to list fonts_dir={fonts_dir}: {e}")
+
+    stem_to_file: dict[str, str] = {}
+    for f in available:
+        p = Path(f)
+        if p.suffix.lower() in {".ttf", ".otf"}:
+            stem_to_file[p.stem.lower()] = f
+
     for font_name in sorted(font_names):
-        path = f"{fonts_dir}/{font_name}.ttf"
+        fname = stem_to_file.get(font_name.lower())
+        if not fname:
+            logger.warning(
+                "Font file for '%s' not found in '%s' (expected .ttf/.otf, any case)",
+                font_name,
+                fonts_dir,
+            )
+            continue
+
+        path = os.path.join(fonts_dir, fname)
         try:
             pdfmetrics.registerFont(TTFont(font_name, path))
         except Exception as e:
@@ -57,7 +80,7 @@ def sample_random_fonts_for_style_map(style_map: dict[str, Any], fonts_dir: str,
     except Exception as e:
         raise RuntimeError(f"Failed to list fonts_dir={fonts_dir}: {e}")
 
-    font_names = sorted({f[:-4] for f in files if f.lower().endswith(".ttf")})
+    font_names = sorted({Path(f).stem for f in files if Path(f).suffix.lower() in {".ttf", ".otf"}})
     if not font_names:
         raise RuntimeError(f"No .ttf fonts found in {fonts_dir}")
 
@@ -93,6 +116,12 @@ if __name__ == "__main__":
         "dpi": 300,
         "padding_pt": 3.0,
         "height_safety_factor": 1.0,
+
+        "margin": 120,
+        "gutter": 40,
+        "v_gap": 24,
+        "scale_to_column": True,
+
         "title": {"font_size": 18.0, "leading": 18.0, "font_name": "Caveat-Bold"},
         "header": {"font_size": 12.0, "leading": 10.0, "font_name": "Caveat-SemiBold"},
         "paragraph": {"font_size": 15.0, "leading": 12.0, "font_name": "Caveat-Regular"},

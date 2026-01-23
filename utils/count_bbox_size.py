@@ -1,6 +1,8 @@
 from typing import List, Tuple
 from reportlab.pdfbase import pdfmetrics
 import math
+import os
+import re
 
 
 def pt_to_px(pt: float, dpi: int = 300) -> float:
@@ -102,7 +104,10 @@ def measure_bbox_size_for_block(
 
     # height estimate: lines * leading + padding*2
     text_h = len(lines) * leading_px
+    # h = int(round((text_h + 2 * padding_px) * height_safety_factor))
+
     h = int(round((text_h + 2 * padding_px) * height_safety_factor))
+
 
     # width: ensure it fits the longest line + padding, but not exceed max_width_px
     w = int(round(min(max_width_px, max_line_w + 2 * padding_px)))

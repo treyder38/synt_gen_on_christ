@@ -12,11 +12,7 @@ def generate_layout(
     *,
     style_map: Dict[str, Any],
     page_w: int = 2480,     # A4 @300dpi
-    page_h: int = 3508,
-    margin: int = 120,
-    gutter: int = 40,
-    v_gap: int = 24,
-    scale_to_column: bool = True,
+    page_h: int = 3508
 ) -> Dict[str, Any]:
     """
     Делит страницу A4 на 2 колонки и раскладывает blocks сверху вниз.
@@ -36,6 +32,10 @@ def generate_layout(
     Выход: тот же JSON + page + у каждого блока bbox=[x1,y1,x2,y2]
     """
     dpi = int(style_map.get("dpi", 300))
+    margin = int(style_map.get("margin", 120))
+    gutter = int(style_map.get("gutter", 40))
+    v_gap = int(style_map.get("v_gap", 24))
+    scale_to_column = bool(style_map.get("scale_to_column", True))
 
     out = deepcopy(data)
     out["page"] = {"width": page_w, "height": page_h, "dpi": dpi}
@@ -78,13 +78,8 @@ def generate_layout(
     def fits(y: int, h: int) -> bool:
         return (y + h) <= bottom_y
 
-    def get_style(b: Dict[str, Any]) -> Dict[str, Any]:
-        b_type = str(b.get("type") or "paragraph")
+    def get_style(b: Dict[str, Any], b_type: str) -> Dict[str, Any]:
         st = style_map.get(b_type)
-        if not isinstance(st, dict):
-            st = style_map.get("paragraph", {})
-        if not isinstance(st, dict):
-            st = {}
         return st
 
     def pt_to_px(pt: float, dpi_used: int) -> float:
@@ -93,6 +88,7 @@ def generate_layout(
     def layout_words(
         b: Dict[str, Any],
         *,
+        type_of_content: str,
         block_bbox: List[int],
         block_size_scaled: Tuple[int, int],
         block_size_orig: Tuple[int, int],
@@ -117,7 +113,7 @@ def generate_layout(
 
         s = w_scaled / float(w0)
 
-        st = get_style(b)
+        st = get_style(b, type_of_content)
         font_name = str(st.get("font_name") or "")
         font_size_pt = float(st.get("font_size") or 0.0)
         leading_pt = float(st.get("leading") or 0.0)
@@ -153,13 +149,6 @@ def generate_layout(
             # Explicit newline token: move to next line and reset cursor.
             # `generate_json.py` emits tokens with content='\n' and bbox_size=[0,0].
             if wd.get("content") == "\n":
-                out_wd = dict(wd)
-                out_wd["bbox_size"] = [0, 0]
-                xi = int(round(x))
-                yi = int(round(y))
-                out_wd["bbox"] = [xi, yi, xi, yi]
-                out_words.append(out_wd)
-
                 if leading_px_f > 0:
                     step = leading_px_f
                 else:
@@ -175,7 +164,6 @@ def generate_layout(
             if not isinstance(ws, (list, tuple)) or len(ws) != 2:
                 continue
             ww0, wh0 = int(ws[0]), int(ws[1])
-            wh0 = int(ws[1])
             if ww0 <= 0 or wh0 <= 0:
                 continue
 
@@ -265,6 +253,7 @@ def generate_layout(
 
             words_laid = layout_words(
                 bb,
+                type_of_content=bb["type"],
                 block_bbox=bb["bbox"],
                 block_size_scaled=(w, h),
                 block_size_orig=(w0, h0),
@@ -315,6 +304,7 @@ def generate_layout(
 
         words_laid = layout_words(
             bb,
+            type_of_content=bb["type"],
             block_bbox=bb["bbox"],
             block_size_scaled=(w, h),
             block_size_orig=(w0, h0),
