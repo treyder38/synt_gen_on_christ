@@ -134,13 +134,13 @@ def doc_pipeline(sampled_persona: str, style_map: Optional[Dict[str, Dict[str, f
     MODEL = "Qwen/Qwen2.5-32B-Instruct"
 
     run_dir = _make_next_run_dir()
-    logger.info("Run directory: %s", str(run_dir))
-
+    #logger.info("Run directory: %s", str(run_dir))
+    
     topic = generate_topic(sampled_persona, model = MODEL)
-    logger.info("Topic: %s", topic)
+    #logger.info("Topic: %s", topic)
 
     text = generate_text(sampled_persona, topic, model = MODEL)
-    logger.info("Text: %s", text)
+    #logger.info("Text: %s", text)
 
     split_json = split_to_blocks(text)
     # out_path = run_dir / "split.json"
@@ -158,7 +158,7 @@ def doc_pipeline(sampled_persona: str, style_map: Optional[Dict[str, Dict[str, f
     out_path = f"{str(run_dir)}/ans.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(final_layout, f, ensure_ascii=False, indent=2)
-    logger.info("Layout saved to: %s", str(out_path))
+    #logger.info("Layout saved to: %s", str(out_path))
 
     pdf_path = render_blocks_json_to_pdf(
         json_path=f"{str(run_dir)}/ans.json",
@@ -169,14 +169,13 @@ def doc_pipeline(sampled_persona: str, style_map: Optional[Dict[str, Dict[str, f
     )
     #logger.info("Render saved to: %s", pdf_path)
 
-    # TODO: подготовить все для генерации на s3
     aug_img_path = f"{str(run_dir)}/doc.png"
     augment_image(
         pdf_path=pdf_path,
         dpi=style_map["dpi"],
         out_image_path=aug_img_path
     )
-    logger.info("Augmented page saved to: %s", aug_img_path)
+    #logger.info("Augmented page saved to: %s", aug_img_path)
 
     os.remove(pdf_path)
 
