@@ -69,7 +69,8 @@ def split_to_blocks(text: str) -> Dict[str, List[Dict[str, Any]]]:
     # Title is always the first paragraph
     title_chunk = raw_blocks[0]
     title_text = strip_md_heading(norm(title_chunk))
-    blocks.append({"id": f"b{bid}", "type": "title", "content": title_text, "words": make_words(title_text)})
+    # blocks.append({"id": f"b{bid}", "type": "title", "content": title_text, "words": make_words(title_text)})
+    blocks.append({"id": f"b{bid}", "type": "title", "content": title_text})
     bid += 1
 
     # Process remaining chunks
@@ -82,13 +83,16 @@ def split_to_blocks(text: str) -> Dict[str, List[Dict[str, Any]]]:
         i = 0
         while i < len(chunk_lines) and is_header(chunk_lines[i]):
             header_text = strip_md_heading(norm(chunk_lines[i]))
-            blocks.append({"id": f"b{bid}", "type": "header", "content": header_text, "words": make_words(header_text)})
+            #blocks.append({"id": f"b{bid}", "type": "header", "content": header_text, "words": make_words(header_text)})
+            blocks.append({"id": f"b{bid}", "type": "header", "content": header_text})
+
             bid += 1
             i += 1
 
         rest = "\n".join(chunk_lines[i:]).strip()
         if rest:
-            blocks.append({"id": f"b{bid}", "type": "paragraph", "content": rest, "words": make_words(rest)})
+            # blocks.append({"id": f"b{bid}", "type": "paragraph", "content": rest, "words": make_words(rest)})
+            blocks.append({"id": f"b{bid}", "type": "paragraph", "content": rest})
             bid += 1
 
     return {"blocks": blocks}

@@ -1,4 +1,5 @@
 import os
+import re
 from openai import OpenAI
 
 
@@ -22,6 +23,17 @@ Here are the requirements:
 - Any list must be contextually appropriate (e.g., steps, criteria, pros/cons, checklist). If not appropriate, use normal paragraphs instead.
 - Include concrete numbers where appropriate. Numbers must be plausible and consistent with the topic.
 - Keep the tone professional and realistic; avoid generic fluff."""
+
+
+def _contains_cjk(text: str) -> bool:
+    """Detect CJK (Chinese/Japanese/Korean) ideographs in text."""
+    if not text:
+        return False
+    # Covers common CJK ranges (BMP + supplementary planes)
+    cjk_re = re.compile(
+        r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\U00020000-\U0002A6DF\U0002A700-\U0002B73F\U0002B740-\U0002B81F\U0002B820-\U0002CEAF]"
+    )
+    return cjk_re.search(text) is not None
 
 
 def generate_text(persona: str, topic: str, model: str, site_url: str = "http://localhost",
@@ -48,4 +60,8 @@ def generate_text(persona: str, topic: str, model: str, site_url: str = "http://
     )
 
     text = (completion.choices[0].message.content or "").strip()
+
+    if _contains_cjk(text):
+        raise ValueError("Generated text contains CJK (e.g., Chinese) characters; aborting.")
+
     return text

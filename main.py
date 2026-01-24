@@ -22,9 +22,9 @@ def register_fonts(style_map: dict[str, Any], fonts_dir: str = "/home/jovyan/peo
     """Register all fonts referenced in style_map.
 
     Expects per-block styles like:
-      style_map["title"]["font_name"] = "Caveat-Bold"
+      style_map["title"]["font_name"] = "Caveat-Bold.ttf"
     and will register them from:
-      /home/jovyan/people/Glebov/synt_gen_2/fonts/<font_name>.ttf
+      /home/jovyan/people/Glebov/synt_gen_2/fonts/<font_name>
 
     Ignores non-dict entries and global numeric keys.
     """
@@ -37,7 +37,13 @@ def register_fonts(style_map: dict[str, Any], fonts_dir: str = "/home/jovyan/peo
                 font_names.add(fn)
 
     for font_name in sorted(font_names):
-        path = f"{fonts_dir}/{font_name}.ttf"
+        path = os.path.join(fonts_dir, font_name)
+        if not os.path.isfile(path):
+            logger.warning("Font file not found for '%s': %s", font_name, path)
+            continue
+        if not os.access(path, os.R_OK):
+            logger.warning("Font file not readable for '%s': %s", font_name, path)
+            continue
         try:
             pdfmetrics.registerFont(TTFont(font_name, path))
         except Exception as e:
@@ -57,11 +63,21 @@ def sample_random_fonts_for_style_map(style_map: dict[str, Any], fonts_dir: str,
     except Exception as e:
         raise RuntimeError(f"Failed to list fonts_dir={fonts_dir}: {e}")
 
-    font_names = sorted({f[:-4] for f in files if f.lower().endswith(".ttf")})
-    if not font_names:
-        raise RuntimeError(f"No .ttf fonts found in {fonts_dir}")
+    ttf_paths: list[str] = []
+    for f in files:
+        if not f.lower().endswith(".ttf"):
+            continue
+        p = os.path.join(fonts_dir, f)
+        if os.path.isfile(p) and os.access(p, os.R_OK):
+            ttf_paths.append(f)
 
-    # Choose distinct fonts when possible
+    font_names = sorted(set(ttf_paths))
+    if not font_names:
+        raise RuntimeError(
+            f"No readable .ttf fonts found in {fonts_dir}. "
+            f"Check that the directory exists and that the .ttf files are present and readable."
+        )
+
     block_keys = [k for k, v in style_map.items() if isinstance(v, dict) and "font_name" in v]
     picks = random.sample(font_names, k=min(len(block_keys), len(font_names)))
 
@@ -93,9 +109,15 @@ if __name__ == "__main__":
         "dpi": 300,
         "padding_pt": 3.0,
         "height_safety_factor": 1.0,
-        "title": {"font_size": 18.0, "leading": 18.0, "font_name": "Caveat-Bold"},
-        "header": {"font_size": 12.0, "leading": 10.0, "font_name": "Caveat-SemiBold"},
-        "paragraph": {"font_size": 15.0, "leading": 12.0, "font_name": "Caveat-Regular"},
+
+        "margin": int(random.randint(80, 180)),
+        "gutter": int(random.randint(20, 70)),
+        "v_gap": int(random.randint(12, 48)),
+        "scale_to_column": True,
+
+        "title": {"font_size": float(random.randint(13.0, 19.0)), "leading": float(random.randint(13.0, 15.0)), "font_name": "Caveat-Bold.ttf"},
+        "header": {"font_size": float(random.randint(13.0, 15.0)), "leading": float(random.randint(8.0, 13.0)), "font_name": "Caveat-SemiBold.ttf"},
+        "paragraph": {"font_size": float(random.randint(9.0, 13.0)), "leading": float(random.randint(8.0, 12.0)), "font_name": "Caveat-Regular.ttf"},
     }
 
     fonts_dir = "/home/jovyan/people/Glebov/synt_gen_2/ruhw_fonts"

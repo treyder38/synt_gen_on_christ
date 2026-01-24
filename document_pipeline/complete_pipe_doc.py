@@ -2,6 +2,8 @@ import json
 import logging
 import os
 import re
+import uuid
+from datetime import datetime, timezone
 import numpy as np
 import albumentations as A
 from pathlib import Path
@@ -23,13 +25,16 @@ OUT_ROOT = Path("/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out")
 
 
 def _make_next_run_dir() -> Path:
-    """Create out/run{N} where N == number of existing run* directories."""
+    """Create a unique run directory under out/<time>_<uuid>/.
+
+    Time is UTC in format YYYYMMDDTHHMMSSZ to keep lexicographic order.
+    """
     OUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-    run_dirs = [p for p in OUT_ROOT.iterdir() if p.is_dir() and p.name.startswith("run")]
-    n = len(run_dirs)
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_id = f"{ts}_{uuid.uuid4().hex}"
 
-    run_dir = OUT_ROOT / f"run{n}"
+    run_dir = OUT_ROOT / run_id
     run_dir.mkdir(parents=True, exist_ok=False)
     return run_dir
 
@@ -45,25 +50,15 @@ def _bleed_through_image(x, **kwargs):
 
 
 def augment_image(
-    in_pdf_path: str,
+    pdf_path: str,
+    dpi: int,
     out_image_path: str,
-    dpi: int = 300,
-    jpeg_quality_range: tuple[int, int] = (35, 95),
-) -> Optional[str]:
-    """Render a single-page PDF to an image, apply document-like augmentations, save as an image.
-
-    Returns the written image path, or None if skipped.
-
-    Notes:
-    - Assumes the input PDF is single-page; if not, uses the first page only.
-    - Requires PyMuPDF (fitz) + Pillow.
-    - Requires numpy + albumentations for augmentation; if missing, saves a plain rendered page.
-    """
+) -> None:
 
     out_path = Path(out_image_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    doc = fitz.open(str(Path(in_pdf_path)))
+    doc = fitz.open(str(Path(pdf_path)))
 
     try:
         page = doc.load_page(0)
@@ -72,15 +67,14 @@ def augment_image(
         pil_img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples).convert("RGB")
         img = np.array(pil_img)
 
-        # Document-like augmentations: blur/noise, lighting, compression.
         aug = A.Compose(
             [
                 A.OneOf(
                     [
-                        A.GaussianBlur(blur_limit=(7, 15), p=1.0),
-                        A.MotionBlur(blur_limit=(7, 15), p=1.0),
+                        A.GaussianBlur(blur_limit=(3, 7), p=1.0),
+                        A.MotionBlur(blur_limit=(3, 7), p=1.0),
                     ],
-                    p=0.8,
+                    p=0.5,
                 ),
                 A.OneOf(
                     [
@@ -108,7 +102,19 @@ def augment_image(
                     ],
                     p=0.7,
                 ),
-                A.Lambda(image=_bleed_through_image),
+                A.Lambda(image=_bleed_through_image, p=0.6),
+                # Color cast: slightly yellowish (warm) OR grayish (desaturated)
+                A.OneOf(
+                    [
+                        # Warm/yellowish: boost R+G and reduce B a bit
+                        A.RGBShift(r_shift_limit=(0, 20), g_shift_limit=(0, 20), b_shift_limit=(-20, 0), p=1.0),
+                        # Grayish: desaturate / convert to gray
+                        A.ToGray(p=1.0),
+                        # Mild desaturation without full grayscale
+                        A.HueSaturationValue(hue_shift_limit=0, sat_shift_limit=(-35, -10), val_shift_limit=0, p=1.0),
+                    ],
+                    p=0.75,
+                ),
                 A.RandomBrightnessContrast(brightness_limit=0.18, contrast_limit=0.12, p=0.7),
                 A.ImageCompression(
                     quality_range=(25, 80),
@@ -119,12 +125,11 @@ def augment_image(
 
         out = aug(image=img)["image"]
         Image.fromarray(out).convert("RGB").save(str(out_path))
-        return str(out_path)
     finally:
         doc.close()
 
 
-def doc_pipeline(sampled_persona: str, style_map: Optional[Dict[str, Dict[str, float]]]) -> None:
+def doc_pipeline(sampled_persona: str, style_map: Optional[Dict[str, Dict[str, float]]]) -> Path:
 
     MODEL = "Qwen/Qwen2.5-32B-Instruct"
 
@@ -138,37 +143,41 @@ def doc_pipeline(sampled_persona: str, style_map: Optional[Dict[str, Dict[str, f
     logger.info("Text: %s", text)
 
     split_json = split_to_blocks(text)
-    out_path = run_dir / "split.json"
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(split_json, f, ensure_ascii=False, indent=2)
-    logger.info("Split saved to: %s", str(out_path))
+    # out_path = run_dir / "split.json"
+    # with open(out_path, "w", encoding="utf-8") as f:
+    #     json.dump(split_json, f, ensure_ascii=False, indent=2)
+    #logger.info("Split saved to: %s", str(out_path))
 
     json_with_bbox_sizes = generate_json_with_sizes(split_json, style_map=style_map)
-    out_path = run_dir / "json_with_bbox_sizes.json"
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(json_with_bbox_sizes, f, ensure_ascii=False, indent=2)
-    logger.info("json_with_bbox_sizes saved to: %s", str(out_path))
+    # out_path = run_dir / "json_with_bbox_sizes.json"
+    # with open(out_path, "w", encoding="utf-8") as f:
+    #     json.dump(json_with_bbox_sizes, f, ensure_ascii=False, indent=2)
+    # logger.info("json_with_bbox_sizes saved to: %s", str(out_path))
 
     final_layout = generate_layout(data=json_with_bbox_sizes, style_map=style_map)
-    out_path = run_dir / "ans.json"
+    out_path = f"{str(run_dir)}/ans.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(final_layout, f, ensure_ascii=False, indent=2)
     logger.info("Layout saved to: %s", str(out_path))
 
     pdf_path = render_blocks_json_to_pdf(
-        json_path=str(run_dir / "ans.json"),
-        out_pdf_path=str(run_dir / "out.pdf"),
-        draw_frames=True,
-        draw_word_bboxes=True,
+        json_path=f"{str(run_dir)}/ans.json",
+        out_pdf_path=f"{str(run_dir)}/out.pdf",
+        draw_frames=False,
+        draw_word_bboxes=False,
         style_map=style_map,
     )
-    logger.info("Render saved to: %s", pdf_path)
+    #logger.info("Render saved to: %s", pdf_path)
 
-    # aug_img_path = "/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/doc.png"
-    # augmented_path = augment_image(
-    #     in_pdf_path=pdf_path,
-    #     out_image_path=aug_img_path,
-    #     dpi=300,
-    #     jpeg_quality_range=(35, 95),
-    # )
-    # logger.info("Augmented page saved to: %s", augmented_path)
+    # TODO: подготовить все для генерации на s3
+    aug_img_path = f"{str(run_dir)}/doc.png"
+    augment_image(
+        pdf_path=pdf_path,
+        dpi=style_map["dpi"],
+        out_image_path=aug_img_path
+    )
+    logger.info("Augmented page saved to: %s", aug_img_path)
+
+    os.remove(pdf_path)
+
+    return run_dir

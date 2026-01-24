@@ -21,7 +21,7 @@ def generate_json_with_sizes(
 
     Output JSON:
     {
-      "blocks": [... same blocks ... with "bbox_size": [w_px, h_px] ...] & bboxes for every word in the block
+      "blocks": [... same blocks ... with "bbox_size": [w_px, h_px] ...] #### & bboxes for every word in the block
     }
 
     Note: max_width_px is chosen per-block based on a random split boundary:
@@ -81,35 +81,35 @@ def generate_json_with_sizes(
                 height_safety_factor=height_safety_factor,
             )
 
-            # Per-word bbox sizes for this text block (tight)
-            # IMPORTANT: tokens are expected to be provided in the input JSON as b["words"].
-            words_out: List[Dict[str, Any]] = []
-            words_in = b.get("words")
-            if not isinstance(words_in, list):
-                raise ValueError("Input JSON must contain a list field 'words' for each non-figure block")
-
-            for wd in words_in:
-                if not isinstance(wd, dict):
-                    continue
-                tok = wd.get("content")
-                if not isinstance(tok, str):
-                    continue
-
-                out_wd = dict(wd)
-                if tok == "\n":
-                    # Preserve explicit line breaks as tokens; no visual bbox.
-                    out_wd["bbox_size"] = [0, 0]
-                    words_out.append(out_wd)
-                    continue
-
-                ww, wh = measure_bbox_size_for_one_word(
-                    tok,
-                    font_name=font_name,
-                    font_size_pt=font_size_pt,
-                    dpi=dpi,
-                )
-                out_wd["bbox_size"] = [int(ww), int(wh)]
-                words_out.append(out_wd)
+            # # Per-word bbox sizes for this text block (tight)
+            # # (DISABLED) Treat input JSON as if it has no `words` field.
+            # # words_out: List[Dict[str, Any]] = []
+            # # words_in = b.get("words")
+            # # if not isinstance(words_in, list):
+            # #     raise ValueError("Input JSON must contain a list field 'words' for each non-figure block")
+            # #
+            # # for wd in words_in:
+            # #     if not isinstance(wd, dict):
+            # #         continue
+            # #     tok = wd.get("content")
+            # #     if not isinstance(tok, str):
+            # #         continue
+            # #
+            # #     out_wd = dict(wd)
+            # #     if tok == "\n":
+            # #         # Preserve explicit line breaks as tokens; no visual bbox.
+            # #         out_wd["bbox_size"] = [0, 0]
+            # #         words_out.append(out_wd)
+            # #         continue
+            # #
+            # #     ww, wh = measure_bbox_size_for_one_word(
+            # #         tok,
+            # #         font_name=font_name,
+            # #         font_size_pt=font_size_pt,
+            # #         dpi=dpi,
+            # #     )
+            # #     out_wd["bbox_size"] = [int(ww), int(wh)]
+            # #     words_out.append(out_wd)
         else:
             # Target page size for normalizing figure sizes (px)
             page_w_px = 2480
@@ -141,8 +141,8 @@ def generate_json_with_sizes(
         b2 = dict(b)
         b2["bbox_size"] = [int(w), int(h)]
 
-        if b_type != "figure":
-            b2["words"] = words_out
+        # if b_type != "figure":
+        #     b2["words"] = words_out
 
         out_blocks.append(b2)
 

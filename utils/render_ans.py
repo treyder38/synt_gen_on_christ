@@ -98,22 +98,22 @@ def render_blocks_json_to_pdf(
         if draw_frames:
             c.rect(x_pt, y_pt, w_pt, h_pt, stroke=1, fill=0)
         # Draw per-word bbox frames (only if present in JSON)
-        if draw_word_bboxes:
-            words = b.get("words")
-            if isinstance(words, list):
-                for wd in words:
-                    if not isinstance(wd, dict):
-                        continue
-                    wb = wd.get("bbox")
-                    if not isinstance(wb, (list, tuple)) or len(wb) != 4:
-                        continue
-                    wx_pt, wy_pt, ww_pt, wh_pt = _bbox_px_to_rect_pt(
-                        [float(wb[0]), float(wb[1]), float(wb[2]), float(wb[3])],
-                        page_w_px,
-                        page_h_px,
-                        dpi,
-                    )
-                    c.rect(wx_pt, wy_pt, ww_pt, wh_pt, stroke=1, fill=0)
+        # if draw_word_bboxes:
+        #     words = b.get("words")
+        #     if isinstance(words, list):
+        #         for wd in words:
+        #             if not isinstance(wd, dict):
+        #                 continue
+        #             wb = wd.get("bbox")
+        #             if not isinstance(wb, (list, tuple)) or len(wb) != 4:
+        #                 continue
+        #             wx_pt, wy_pt, ww_pt, wh_pt = _bbox_px_to_rect_pt(
+        #                 [float(wb[0]), float(wb[1]), float(wb[2]), float(wb[3])],
+        #                 page_w_px,
+        #                 page_h_px,
+        #                 dpi,
+        #             )
+        #             c.rect(wx_pt, wy_pt, ww_pt, wh_pt, stroke=1, fill=0)
 
         # Render image for figure blocks
         if btype == "figure":
