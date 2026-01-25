@@ -93,12 +93,8 @@ def draw_bboxes_from_json(
 if __name__ == "__main__":
 
     out = draw_bboxes_from_json(
-        "/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/20260124T181628Z_9cab26c88d6d4a5fb189e9134bdd6429/doc.png",
-        "/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/20260124T181628Z_9cab26c88d6d4a5fb189e9134bdd6429/ans.json",
+        "/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/20260125T064316Z_72bde19c5bcc4a0380de8d9f9302a460/doc.png",
+        "/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out/20260125T064316Z_72bde19c5bcc4a0380de8d9f9302a460/ans.json",
         out_path="/home/jovyan/people/Glebov/synt_gen_2/test_render.png",
     )
     print("saved:", out)
-
-    
-
-    

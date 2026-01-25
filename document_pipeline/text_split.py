@@ -1,6 +1,35 @@
 import re
 from typing import Any, Dict, List
 
+# Remove markdown emphasis wrappers like *word* or **phrase with spaces**
+# without crossing line breaks.
+_emph_bold_re = re.compile(r"\*\*([^\n*]+?)\*\*")
+_emph_ital_re = re.compile(r"(?<!\*)\*([^\n*]+?)\*(?!\*)")
+
+
+def strip_asterisk_wrappers(text: str) -> str:
+    """Remove markdown emphasis wrappers made of asterisks.
+
+    Examples:
+      '**Hello**' -> 'Hello'
+      '*Hello*'   -> 'Hello'
+      '**Hello world**' -> 'Hello world'
+
+    Does not cross newlines and does not touch asterisks used in other contexts
+    (e.g. '3*5', bullet lists without closing '*').
+    """
+    if not isinstance(text, str) or not text:
+        return text
+
+    for _ in range(3):
+        new = _emph_bold_re.sub(r"\1", text)
+        new = _emph_ital_re.sub(r"\1", new)
+        if new == text:
+            break
+        text = new
+
+    return text
+
 
 def split_tokens_preserve_newlines(text: str) -> List[str]:
     """Split into tokens, preserving explicit line breaks as '\n' tokens.
@@ -54,6 +83,7 @@ def split_to_blocks(text: str) -> Dict[str, List[Dict[str, Any]]]:
 
     # normalize newlines
     text = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+    text = strip_asterisk_wrappers(text)
     if not text:
         return {"blocks": []}
 

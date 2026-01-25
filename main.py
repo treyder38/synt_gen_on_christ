@@ -218,7 +218,7 @@ def main() -> None:
 
     style_map = {
         "dpi": 300,
-        "padding_pt": 3.0,
+        "padding_pt": 4.0,
         "height_safety_factor": 1.0,
 
         "margin": int(random.randint(80, 180)),

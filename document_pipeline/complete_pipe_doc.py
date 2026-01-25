@@ -71,8 +71,8 @@ def augment_image(
             [
                 A.OneOf(
                     [
-                        A.GaussianBlur(blur_limit=(3, 7), p=1.0),
-                        A.MotionBlur(blur_limit=(3, 7), p=1.0),
+                        A.GaussianBlur(blur_limit=(1, 3), p=1.0),
+                        A.MotionBlur(blur_limit=(3, 5), p=1.0),
                     ],
                     p=0.5,
                 ),
@@ -117,7 +117,7 @@ def augment_image(
                 ),
                 A.RandomBrightnessContrast(brightness_limit=0.18, contrast_limit=0.12, p=0.7),
                 A.ImageCompression(
-                    quality_range=(25, 80),
+                    quality_range=(45, 80),
                     p=0.6,
                 ),
             ]
@@ -131,7 +131,7 @@ def augment_image(
 
 def doc_pipeline(sampled_persona: str, style_map: Optional[Dict[str, Dict[str, float]]]) -> Path:
 
-    MODEL = "Qwen/Qwen2.5-32B-Instruct"
+    MODEL = "mistralai/Mistral-Nemo-Instruct-2407"
 
     run_dir = _make_next_run_dir()
     #logger.info("Run directory: %s", str(run_dir))

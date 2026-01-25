@@ -9,7 +9,7 @@ I need materials about "{topic}" that can be used to generate a realistic docume
 
 Here are the requirements:
 1. The materials must be directly related to the topic and customized according to the given persona.
-2. The materials must be realistic and grounded in real-world context. Use real-world entities, names, places, dates, and organizations where appropriate.
+2. The materials must be realistic and grounded in Russian real-world context. Use real-world Russian entities, names, places, dates, and organizations where appropriate.
    Do NOT use placeholder names such as xxA, xxB, John Doe, or template markers like [Name], [Date], etc.
 3. The materials should cover different relevant aspects of the topic to make the document informative.
 4. All materials must be written in Russian, even if the persona is non-Russian.
@@ -19,25 +19,42 @@ Here are the requirements:
 - Do NOT use markdown headings with # symbols. Use plain text headers without any leading symbols.
 - Do NOT use asterisks for emphasis or formatting. Use plain text only.
 - If there are mulitple paragraphs, include a short header before each of them.
-- If lists are helpful for clarity, include bullet list OR numbered list. Do NOT force lists into every document.
+- If lists are helpful for clarity, include bullet list OR numbered list.
 - Any list must be contextually appropriate (e.g., steps, criteria, pros/cons, checklist). If not appropriate, use normal paragraphs instead.
 - Include concrete numbers where appropriate. Numbers must be plausible and consistent with the topic.
 - Keep the tone professional and realistic; avoid generic fluff."""
 
 
-def _contains_cjk(text: str) -> bool:
-    """Detect CJK (Chinese/Japanese/Korean) ideographs in text."""
+def _contains_non_latin_or_cyrillic_letters(text: str) -> bool:
+    """Return True if text contains alphabetic letters outside Latin/Cyrillic.
+
+    We allow:
+      - Latin letters: A-Z, a-z, plus Latin-1 Supplement/Extended blocks (to keep it strict we ONLY allow basic Latin).
+      - Cyrillic letters: including Ёё.
+
+    Digits, punctuation, whitespace, and other symbols are allowed.
+    """
     if not text:
         return False
-    # Covers common CJK ranges (BMP + supplementary planes)
-    cjk_re = re.compile(
-        r"[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF\U00020000-\U0002A6DF\U0002A700-\U0002B73F\U0002B740-\U0002B81F\U0002B820-\U0002CEAF]"
-    )
-    return cjk_re.search(text) is not None
+
+    for ch in text:
+        if ch.isalpha():
+            code = ord(ch)
+            is_basic_latin = (0x0041 <= code <= 0x005A) or (0x0061 <= code <= 0x007A)
+            is_cyrillic = (
+                (0x0400 <= code <= 0x04FF)  # Cyrillic
+                or (0x0500 <= code <= 0x052F)  # Cyrillic Supplement
+                or (0x2DE0 <= code <= 0x2DFF)  # Cyrillic Extended-A
+                or (0xA640 <= code <= 0xA69F)  # Cyrillic Extended-B
+                or (0x1C80 <= code <= 0x1C8F)  # Cyrillic Extended-C
+            )
+            if not (is_basic_latin or is_cyrillic):
+                return True
+
+    return False
 
 
-def generate_text(persona: str, topic: str, model: str, site_url: str = "http://localhost",
-    site_title: str = "persona-topic-generator") -> str:
+def generate_text(persona: str, topic: str, model: str) -> str:
     
     base_url = os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1")
     api_key = os.environ.get("VLLM_API_KEY", "EMPTY")
@@ -52,7 +69,7 @@ def generate_text(persona: str, topic: str, model: str, site_url: str = "http://
     completion = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "Return ONLY the document body as plain text in Russian. Do not add any extra commentary."},
+            {"role": "system", "content": "Return ONLY the document body as plain text in Russian. Do not add any extra commentary. Do NOT use markdown"},
             {"role": "user", "content": prompt},
         ],
         temperature=0.7,
@@ -61,7 +78,9 @@ def generate_text(persona: str, topic: str, model: str, site_url: str = "http://
 
     text = (completion.choices[0].message.content or "").strip()
 
-    if _contains_cjk(text):
-        raise ValueError("Generated text contains CJK (e.g., Chinese) characters; aborting.")
+    if _contains_non_latin_or_cyrillic_letters(text):
+        raise ValueError(
+            "Generated text contains letters outside English/Russian alphabets; aborting."
+        )
 
     return text
