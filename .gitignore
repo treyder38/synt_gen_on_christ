@@ -1,0 +1,15 @@
+# python
+__pycache__/
+
+# jupyter
+.ipynb_checkpoints/
+
+# logs/results
+*.log
+logs/
+hf_cache/
+out/
+document_pipeline/out/
+
+# OS/IDE
+.DS_Store

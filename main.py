@@ -11,22 +11,28 @@ from typing import Any, Optional
 from argparse import ArgumentParser
 from tqdm import tqdm
 import boto3
+import uuid
+import sys
 from botocore.config import Config
 import traceback
-
+import multiprocessing as mp
+from dataclasses import dataclass
+from queue import Empty
 
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-from pict_data_pipeline.complete_pipe_pic import pic_pipeline 
-from document_pipeline.complete_pipe_doc import doc_pipeline
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(message)s",
 )
 
+
 logger = logging.getLogger(__name__)
+# Silence very noisy dependency loggers (otherwise they flood stdout when root level=INFO)
+for _name in ("openai", "httpx", "httpcore", "urllib3"):
+    logging.getLogger(_name).setLevel(logging.WARNING)
 
 
 def register_fonts(fonts_dir: str) -> None:
@@ -214,25 +220,116 @@ def safe_rmtree(path: str) -> None:
         shutil.rmtree(p, ignore_errors=True)
 
 
-def main() -> None:
+@dataclass
+class GenTask:
+    idx: int
+    vis_type: Optional[str]
+    seed: int
 
-    style_map = {
+
+def build_style_map(rng: random.Random) -> dict[str, Any]:
+    """Build a randomized style_map for one sample."""
+    return {
         "dpi": 300,
         "padding_pt": 4.0,
         "height_safety_factor": 1.0,
 
-        "margin": int(random.randint(80, 180)),
-        "gutter": int(random.randint(20, 70)),
-        "v_gap": int(random.randint(12, 48)),
+        "margin": int(rng.randint(80, 180)),
+        "gutter": int(rng.randint(20, 70)),
+        "v_gap": int(rng.randint(12, 48)),
         "scale_to_column": True,
 
-        "title": {"font_size": float(random.randint(13, 19)), "leading": float(random.randint(13, 15)), "font_name": "Caveat-Bold.ttf"},
-        "header": {"font_size": float(random.randint(13, 15)), "leading": float(random.randint(8, 13)), "font_name": "Caveat-SemiBold.ttf"},
-        "paragraph": {"font_size": float(random.randint(9, 13)), "leading": float(random.randint(8, 12)), "font_name": "Caveat-Regular.ttf"},
+        "title": {
+            "font_size": float(rng.randint(13, 19)),
+            "leading": float(rng.randint(13, 15)),
+            "font_name": "Caveat-Bold.ttf",
+        },
+        "header": {
+            "font_size": float(rng.randint(13, 15)),
+            "leading": float(rng.randint(8, 13)),
+            "font_name": "Caveat-SemiBold.ttf",
+        },
+        "paragraph": {
+            "font_size": float(rng.randint(9, 13)),
+            "leading": float(rng.randint(8, 12)),
+            "font_name": "Caveat-Regular.ttf",
+        },
     }
 
-    fonts_dir = "/home/jovyan/people/Glebov/synt_gen_2/ruhw_fonts"
+
+def _worker_loop(
+    gpu_id: int,
+    task_q: "mp.Queue[Optional[GenTask]]",
+    result_q: "mp.Queue[dict[str, Any]]",
+    fonts_dir: str,
+    personas_path: str,
+    vllm_host: str,
+    vllm_base_port: int,
+) -> None:
+    """One worker pinned to a single GPU via CUDA_VISIBLE_DEVICES."""
+    # IMPORTANT: must be set before importing torch/diffusers/etc.
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
+
+    vllm_port = int(vllm_base_port) + int(gpu_id)
+    vllm_base_url = f"http://{vllm_host}:{vllm_port}"
+
+    # Import pipelines only inside the worker after CUDA pinning.
+    from pict_data_pipeline.complete_pipe_pic import pic_pipeline
+    from document_pipeline.complete_pipe_doc import doc_pipeline
+
+    # Each process must register fonts in its own ReportLab registry.
     register_fonts(fonts_dir)
+
+    while True:
+        try:
+            task = task_q.get(timeout=1.0)
+        except Empty:
+            continue
+
+        if task is None:
+            return
+
+        out_dir: Optional[str] = None
+        try:
+            rng = random.Random(task.seed)
+            style_map = build_style_map(rng)
+
+            sample_random_fonts_for_style_map(style_map, fonts_dir, seed=task.seed)
+            sampled_persona = sample_persona(personas_path, seed=task.seed)
+            if task.vis_type is None:
+                out_dir = doc_pipeline(sampled_persona, style_map, base_url=f"{vllm_base_url}/v1")
+            else:
+                out_dir = pic_pipeline(sampled_persona, task.vis_type, style_map, base_url=f"{vllm_base_url}/v1")
+
+            sz = get_dir_size_bytes(out_dir)
+            result_q.put({
+                "ok": True,
+                "idx": task.idx,
+                "vllm_base_url": vllm_base_url,
+                "vllm_port": vllm_port,
+                "out_dir": out_dir,
+                "size_bytes": sz,
+                "style_fonts": {
+                    "title": style_map["title"]["font_name"],
+                    "header": style_map["header"]["font_name"],
+                    "paragraph": style_map["paragraph"]["font_name"],
+                },
+            })
+        except Exception as e:
+            # Clean partial outputs if any.
+            if out_dir:
+                safe_rmtree(out_dir)
+            result_q.put({
+                "ok": False,
+                "idx": task.idx,
+                "error": str(e),
+                "traceback": traceback.format_exc(),
+            })
+
+
+def main() -> None:
+
+    fonts_dir = "/home/jovyan/people/Glebov/synt_gen_2/ruhw_fonts"
 
     parser = ArgumentParser()
     parser.add_argument(
@@ -247,6 +344,30 @@ def main() -> None:
         type=int,
         default=1,
         help="How many samples (documents) to generate.",
+    )
+    parser.add_argument(
+        "--num_gpus",
+        type=int,
+        default=7,
+        help="How many GPUs/workers to use for parallel generation.",
+    )
+    parser.add_argument(
+        "--base_seed",
+        type=int,
+        default=12345,
+        help="Base seed used to derive per-sample seeds (base_seed + idx).",
+    )
+    parser.add_argument(
+        "--vllm_host",
+        type=str,
+        default="127.0.0.1",
+        help="Host where per-GPU vLLM instances are listening.",
+    )
+    parser.add_argument(
+        "--vllm_base_port",
+        type=int,
+        default=8000,
+        help="Base port for per-GPU vLLM instances. Worker on GPU i uses base_port + i.",
     )
     parser.add_argument(
         "--batch_gb",
@@ -286,6 +407,16 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    logger.info(
+        "S3 upload: enabled=%s bucket=%r prefix=%r endpoint=%r profile=%r region=%r",
+        bool(args.s3_bucket),
+        args.s3_bucket,
+        args.s3_prefix,
+        args.s3_endpoint,
+        args.aws_profile,
+        args.aws_region,
+    )
+
     personas_path = "/home/jovyan/people/Glebov/synt_gen_2/utils/persona.jsonl"
 
     # Batching state
@@ -300,7 +431,7 @@ def main() -> None:
             return
 
         ts = time.strftime("%Y%m%d_%H%M%S")
-        archive_name = f"batch_{batch_idx:05d}_{ts}.tar.gz"
+        archive_name = f"batch_{batch_idx:05d}_{ts}_{uuid.uuid4().hex}.tar.gz"
         archive_path = str(Path("/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out") / archive_name)
 
         logger.info(
@@ -311,70 +442,129 @@ def main() -> None:
         )
         make_tar_gz(archive_path, batch_dirs)
 
+        # Log actual archive size (can differ from folder size).
+        archive_size = Path(archive_path).stat().st_size
+        logger.info(
+            "Created archive %s (%.2f GB)",
+            archive_path,
+            (archive_size / (1024**3)) if archive_size >= 0 else float('nan'),
+        )
+
         prefix = args.s3_prefix.strip("/")
         s3_key = f"{prefix}/{archive_name}" if prefix else archive_name
         logger.info("Uploading to s3://%s/%s", args.s3_bucket, s3_key)
-        upload_file_to_s3(
-            archive_path,
-            args.s3_bucket,
-            s3_key,
-            profile=args.aws_profile,
-            region=args.aws_region,
-            endpoint_url=args.s3_endpoint,
-            max_put_bytes=4_900_000_000,
-        )
+        try:
+            upload_file_to_s3(
+                archive_path,
+                args.s3_bucket,
+                s3_key,
+                profile=args.aws_profile,
+                region=args.aws_region,
+                endpoint_url=args.s3_endpoint,
+                max_put_bytes=4_900_000_000,
+            )
+            # After successful upload, delete local archive
+            os.remove(archive_path)
+            logger.info("Upload OK. Removed local archive: %s", archive_path)
 
-        # After successful upload, delete local archive and local sample dirs
-        os.remove(archive_path)
-        for d in batch_dirs:
-            safe_rmtree(d)
-        logger.info("Batch uploaded and local data removed (dirs + archive).")
+            # Only after a successful upload (or if upload disabled) remove sample dirs.
+            for d in batch_dirs:
+                safe_rmtree(d)
+            logger.info("Batch uploaded and local sample dirs removed.")
+        except Exception as e:
+            # DO NOT delete anything on failure; keep artifacts for debugging / retry.
+            logger.error(
+                "S3 upload FAILED for %s -> s3://%s/%s. Keeping local archive and dirs. Error: %s",
+                archive_path,
+                args.s3_bucket,
+                s3_key,
+                e,
+            )
+            logger.error("Traceback:\n%s", traceback.format_exc())
+            return
 
         batch_dirs = []
         batch_bytes = 0
         batch_idx += 1
 
-    # Generate samples
+
+    # Generate samples in parallel (multi-GPU)
     n_total = int(args.n_samples)
-    for i in tqdm(range(n_total), total=n_total, desc="Generating", unit="doc"):
-        sampled_persona = sample_persona(personas_path)
-        #logger.info("Sampled persona: %s", sampled_persona)
-        sample_random_fonts_for_style_map(style_map, fonts_dir)
+    n_workers = max(1, min(int(args.num_gpus), 7, n_total))
 
-        logger.info(
-            "Random fonts chosen: title=%s, header=%s, paragraph=%s",
-            style_map["title"]["font_name"],
-            style_map["header"]["font_name"],
-            style_map["paragraph"]["font_name"],
+    ctx = mp.get_context("spawn")
+    task_q: mp.Queue = ctx.Queue()
+    result_q: mp.Queue = ctx.Queue()
+
+    workers: list[mp.Process] = []
+    for gpu_id in range(n_workers):
+        p = ctx.Process(
+            target=_worker_loop,
+            args=(gpu_id, task_q, result_q, fonts_dir, personas_path, args.vllm_host, args.vllm_base_port),
+            daemon=True,
         )
+        p.start()
+        workers.append(p)
 
-        try:
-            if args.type is None:
-                out_dir = doc_pipeline(sampled_persona, style_map)
-            else:
-                out_dir = pic_pipeline(sampled_persona, args.type, style_map)
-        except Exception as e:
-            # Log error and continue generating next samples.
-            logger.exception("Failed to generate sample %d/%d (type=%s). Error: %s", i + 1, args.n_samples, args.type, e)
-            safe_rmtree(out_dir)
-            continue
+    # Enqueue tasks
+    for i in range(n_total):
+        seed = int(args.base_seed) + i
+        task_q.put(GenTask(idx=i, vis_type=args.type, seed=seed))
 
-        sz = get_dir_size_bytes(out_dir)
-        batch_dirs.append(out_dir)
-        batch_bytes += sz
+    # Tell workers to stop
+    for _ in range(n_workers):
+        task_q.put(None)
 
-        logger.info(
-            "Generated %d/%d: %s (%.2f MB). Current batch: %.2f GB.",
-            i + 1,
-            args.n_samples,
-            out_dir,
-            sz / (1024**2),
-            batch_bytes / (1024**3),
-        )
+    # Collect results
+    done = 0
+    pbar = tqdm(total=n_total, desc="Generating", unit="doc", dynamic_ncols=True, disable=False, file=sys.stdout)
+    try:
+        while done < n_total:
+            res = result_q.get()
+            done += 1
+            pbar.update(1)
 
-        if batch_bytes >= target_bytes:
-            flush_batch()
-        
+            if not res.get("ok", False):
+                logger.error(
+                    "Failed to generate sample %d/%d (type=%s). Error: %s\n%s",
+                    res.get("idx", -1) + 1,
+                    n_total,
+                    args.type,
+                    res.get("error"),
+                    res.get("traceback"),
+                )
+                continue
+
+            out_dir = str(res["out_dir"])
+            sz = int(res["size_bytes"])
+            fonts = res.get("style_fonts", {})
+
+            # logger.info(
+            #     "Generated %d/%d: %s (%.2f MB). Fonts: title=%s header=%s paragraph=%s vLLM=%s",
+            #     res.get("idx", 0) + 1,
+            #     n_total,
+            #     out_dir,
+            #     sz / (1024**2),
+            #     fonts.get("title"),
+            #     fonts.get("header"),
+            #     fonts.get("paragraph"),
+            #     res.get("vllm_base_url"),
+            # )
+
+            batch_dirs.append(out_dir)
+            batch_bytes += sz
+
+            # logger.info("Current batch: %.2f GB (target %.2f GB).", batch_bytes / (1024**3), target_bytes / (1024**3))
+
+            if batch_bytes >= target_bytes:
+                flush_batch()
+    finally:
+        pbar.close()
+        # Ensure workers exit
+        for p in workers:
+            if p.is_alive():
+                p.join(timeout=1.0)
+
     # Flush remaining
     flush_batch()
 

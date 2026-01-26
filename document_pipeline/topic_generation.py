@@ -1,5 +1,6 @@
 import os
 from openai import OpenAI
+from functools import lru_cache
 
 
 GENERATE_DOCUMENT_TOPIC_PROMPT = """You are an expert in document generation and have a broad knowledge of different topics.
@@ -13,15 +14,16 @@ Here are the requirements:
 3. The topic must be written in Russian, even if the persona is non-Russian."""
 
 
-def generate_topic(persona: str, model: str) -> str:
-
-    base_url = os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1")
-    api_key = os.environ.get("VLLM_API_KEY", "EMPTY")
-
-    client = OpenAI(
+@lru_cache(maxsize=32)
+def _get_openai_client(base_url: str) -> OpenAI:
+    return OpenAI(
         base_url=base_url,
-        api_key=api_key,
+        api_key="EMPTY",
     )
+
+def generate_topic(persona: str, model: str, base_url: str) -> str:
+
+    client = _get_openai_client(base_url)
 
     prompt = GENERATE_DOCUMENT_TOPIC_PROMPT.format(persona=persona)
 

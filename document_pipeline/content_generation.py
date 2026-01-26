@@ -1,6 +1,7 @@
 import os
 import re
 from openai import OpenAI
+from functools import lru_cache
 
 
 GENERATE_DOCUMENT_DATA_PROMPT = """You are an expert in content creation and have broad knowledge about various topics.
@@ -24,6 +25,13 @@ Here are the requirements:
 - Include concrete numbers where appropriate. Numbers must be plausible and consistent with the topic.
 - Keep the tone professional and realistic; avoid generic fluff."""
 
+
+@lru_cache(maxsize=32)
+def _get_openai_client(base_url: str) -> OpenAI:
+    return OpenAI(
+        base_url=base_url,
+        api_key="EMPTY",
+    )
 
 def _contains_non_latin_or_cyrillic_letters(text: str) -> bool:
     """Return True if text contains alphabetic letters outside Latin/Cyrillic.
@@ -54,15 +62,9 @@ def _contains_non_latin_or_cyrillic_letters(text: str) -> bool:
     return False
 
 
-def generate_text(persona: str, topic: str, model: str) -> str:
-    
-    base_url = os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1")
-    api_key = os.environ.get("VLLM_API_KEY", "EMPTY")
+def generate_text(persona: str, topic: str, model: str, base_url: str) -> str:
 
-    client = OpenAI(
-        base_url=base_url,
-        api_key=api_key,
-    )
+    client = _get_openai_client(base_url)
 
     prompt = GENERATE_DOCUMENT_DATA_PROMPT.format(persona=persona, topic=topic)
 

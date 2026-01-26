@@ -129,17 +129,17 @@ def augment_image(
         doc.close()
 
 
-def doc_pipeline(sampled_persona: str, style_map: Optional[Dict[str, Dict[str, float]]]) -> Path:
+def doc_pipeline(sampled_persona: str, style_map: Dict[str, Dict[str, float]], base_url: str) -> Path:
 
     MODEL = "mistralai/Mistral-Nemo-Instruct-2407"
 
     run_dir = _make_next_run_dir()
     #logger.info("Run directory: %s", str(run_dir))
     
-    topic = generate_topic(sampled_persona, model = MODEL)
+    topic = generate_topic(sampled_persona, model=MODEL, base_url=base_url)
     #logger.info("Topic: %s", topic)
 
-    text = generate_text(sampled_persona, topic, model = MODEL)
+    text = generate_text(sampled_persona, topic, model=MODEL, base_url=base_url)
     #logger.info("Text: %s", text)
 
     split_json = split_to_blocks(text)
