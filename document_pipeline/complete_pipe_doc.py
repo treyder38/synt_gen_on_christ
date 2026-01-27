@@ -19,7 +19,7 @@ from utils.render_ans import render_blocks_json_to_pdf
 logger = logging.getLogger(__name__)
 
 
-OUT_ROOT = Path("/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out")
+OUT_ROOT = Path("/home/jovyan/people/Glebov/synt_gen_2/out")
 
 
 def _make_next_run_dir() -> Path:
@@ -126,7 +126,7 @@ def augment_image(
 
 def doc_pipeline(sampled_persona: str, style_map: Optional[Dict[str, Dict[str, float]]]) -> None:
 
-    MODEL = "Qwen/Qwen2.5-32B-Instruct"
+    MODEL = "mistralai/Mistral-Nemo-Instruct-2407"
 
     run_dir = _make_next_run_dir()
     logger.info("Run directory: %s", str(run_dir))
