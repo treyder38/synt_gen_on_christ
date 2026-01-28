@@ -114,21 +114,20 @@ if __name__ == "__main__":
 
     style_map = {
         "dpi": 300,
-        "padding_pt": 3.0,
-        "height_safety_factor": 1.0,
+        "padding_pt": 1.0,
 
         "margin": 120,
         "gutter": 40,
         "v_gap": 24,
-        "scale_to_column": True,
 
-        "title": {"font_size": 18.0, "leading": 18.0, "font_name": "Caveat-Bold"},
+        "title": {"font_size": 18.0, "leading": 17.0, "font_name": "Caveat-Bold"},
         "header": {"font_size": 12.0, "leading": 10.0, "font_name": "Caveat-SemiBold"},
-        "paragraph": {"font_size": 15.0, "leading": 12.0, "font_name": "Caveat-Regular"},
+        "paragraph": {"font_size": 15.0, "leading": 11.0, "font_name": "Caveat-Regular"},
     }
 
     fonts_dir = "/home/jovyan/people/Glebov/synt_gen_2/ruhw_fonts"
     sample_random_fonts_for_style_map(style_map, fonts_dir)
+    # style_map["title"]["font_name"] = style_map["header"]["font_name"] = style_map["paragraph"]["font_name"] = "BIRCH_C"
     register_fonts(style_map, fonts_dir=fonts_dir)
 
     logger.info("Random fonts chosen: title=%s, header=%s, paragraph=%s",

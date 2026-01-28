@@ -5,7 +5,7 @@ from openai import OpenAI
 GENERATE_DOCUMENT_TOPIC_PROMPT = """You are an expert in document generation and have a broad knowledge of different topics.
 My persona is: "{persona}"
 
-I want you to generate a single topic that I will be interested in or that I may encounter in my daily life given my persona.
+I want you to generate a topic that I will be interested in or that I may encounter in my daily life given my persona.
 
 Here are the requirements:
 1. The topic should be a high-level summary of a document’s contents with some realistic details (e.g., purpose, context, or key elements).

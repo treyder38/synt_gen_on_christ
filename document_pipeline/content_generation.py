@@ -8,7 +8,7 @@ I need materials about "{topic}" that can be used to generate a realistic docume
 
 Here are the requirements:
 1. The materials must be directly related to the topic and customized according to the given persona.
-2. The materials must be realistic and grounded in real-world context. Use real-world entities, names, places, dates, and organizations where appropriate.
+2. The materials must be realistic and grounded in Russian real-world context. Use real-world Russian entities, names, places, dates, and organizations where appropriate.
    Do NOT use placeholder names such as xxA, xxB, John Doe, or template markers like [Name], [Date], etc.
 3. The materials should cover different relevant aspects of the topic to make the document informative.
 4. All materials must be written in Russian, even if the persona is non-Russian.
@@ -18,7 +18,7 @@ Here are the requirements:
 - Do NOT use markdown headings with # symbols. Use plain text headers without any leading symbols.
 - Do NOT use asterisks for emphasis or formatting. Use plain text only.
 - If there are mulitple paragraphs, include a short header before each of them.
-- If lists are helpful for clarity, include bullet list OR numbered list. Do NOT force lists into every document.
+- If lists are helpful for clarity, include bullet list OR numbered list.
 - Any list must be contextually appropriate (e.g., steps, criteria, pros/cons, checklist). If not appropriate, use normal paragraphs instead.
 - Include concrete numbers where appropriate. Numbers must be plausible and consistent with the topic.
 - Keep the tone professional and realistic; avoid generic fluff."""
