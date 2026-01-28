@@ -231,13 +231,11 @@ def build_style_map(rng: random.Random) -> dict[str, Any]:
     """Build a randomized style_map for one sample."""
     return {
         "dpi": 300,
-        "padding_pt": 4.0,
-        "height_safety_factor": 1.0,
+        "padding_pt": 1.0,
 
         "margin": int(rng.randint(80, 180)),
         "gutter": int(rng.randint(20, 70)),
-        "v_gap": int(rng.randint(12, 48)),
-        "scale_to_column": True,
+        "v_gap": int(rng.randint(12, 37)),
 
         "title": {
             "font_size": float(rng.randint(13, 19)),
@@ -354,7 +352,7 @@ def main() -> None:
     parser.add_argument(
         "--base_seed",
         type=int,
-        default=12345,
+        default=54321,
         help="Base seed used to derive per-sample seeds (base_seed + idx).",
     )
     parser.add_argument(
@@ -490,7 +488,7 @@ def main() -> None:
 
     # Generate samples in parallel (multi-GPU)
     n_total = int(args.n_samples)
-    n_workers = max(1, min(int(args.num_gpus), 7, n_total))
+    n_workers = args.num_gpus
 
     ctx = mp.get_context("spawn")
     task_q: mp.Queue = ctx.Queue()
@@ -525,14 +523,14 @@ def main() -> None:
             pbar.update(1)
 
             if not res.get("ok", False):
-                logger.error(
-                    "Failed to generate sample %d/%d (type=%s). Error: %s\n%s",
-                    res.get("idx", -1) + 1,
-                    n_total,
-                    args.type,
-                    res.get("error"),
-                    res.get("traceback"),
-                )
+                # logger.error(
+                #     "Failed to generate sample %d/%d (type=%s). Error: %s\n%s",
+                #     res.get("idx", -1) + 1,
+                #     n_total,
+                #     args.type,
+                #     res.get("error"),
+                #     res.get("traceback"),
+                # )
                 continue
 
             out_dir = str(res["out_dir"])

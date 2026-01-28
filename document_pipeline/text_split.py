@@ -31,24 +31,6 @@ def strip_asterisk_wrappers(text: str) -> str:
     return text
 
 
-def split_tokens_preserve_newlines(text: str) -> List[str]:
-    """Split into tokens, preserving explicit line breaks as '\n' tokens.
-
-    - Collapses Windows newlines to '\n'
-    - Returns a list of tokens where '\n' appears as its own token
-    - Other whitespace is treated as a separator
-    """
-    if not isinstance(text, str) or not text:
-        return []
-
-    # Normalize line endings
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-
-    # Keep '\n' as separate tokens; everything else split by whitespace
-    # Example: "a b\n c" -> ["a","b","\n","c"]
-    return re.findall(r"\n|[^\s]+", text)
-
-
 def split_to_blocks(text: str) -> Dict[str, List[Dict[str, Any]]]:
     """
     Return:
@@ -90,16 +72,12 @@ def split_to_blocks(text: str) -> Dict[str, List[Dict[str, Any]]]:
     blocks: List[Dict[str, Any]] = []
     bid = 1
 
-    def make_words(s: str) -> List[Dict[str, str]]:
-        return [{"content": tok} for tok in split_tokens_preserve_newlines(s)]
-
     # split text into paragraph-ish chunks by blank lines
     raw_blocks = [b.strip() for b in re.split(r"\n\s*\n+", text) if b.strip()]
 
     # Title is always the first paragraph
     title_chunk = raw_blocks[0]
     title_text = strip_md_heading(norm(title_chunk))
-    # blocks.append({"id": f"b{bid}", "type": "title", "content": title_text, "words": make_words(title_text)})
     blocks.append({"id": f"b{bid}", "type": "title", "content": title_text})
     bid += 1
 
@@ -113,15 +91,12 @@ def split_to_blocks(text: str) -> Dict[str, List[Dict[str, Any]]]:
         i = 0
         while i < len(chunk_lines) and is_header(chunk_lines[i]):
             header_text = strip_md_heading(norm(chunk_lines[i]))
-            #blocks.append({"id": f"b{bid}", "type": "header", "content": header_text, "words": make_words(header_text)})
             blocks.append({"id": f"b{bid}", "type": "header", "content": header_text})
-
             bid += 1
             i += 1
 
         rest = "\n".join(chunk_lines[i:]).strip()
         if rest:
-            # blocks.append({"id": f"b{bid}", "type": "paragraph", "content": rest, "words": make_words(rest)})
             blocks.append({"id": f"b{bid}", "type": "paragraph", "content": rest})
             bid += 1
 

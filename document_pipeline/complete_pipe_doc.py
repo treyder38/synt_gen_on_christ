@@ -117,14 +117,28 @@ def augment_image(
                 ),
                 A.RandomBrightnessContrast(brightness_limit=0.18, contrast_limit=0.12, p=0.7),
                 A.ImageCompression(
-                    quality_range=(45, 80),
+                    quality_range=(60, 75),
                     p=0.6,
                 ),
             ]
         )
 
         out = aug(image=img)["image"]
-        Image.fromarray(out).convert("RGB").save(str(out_path))
+        pil_out = Image.fromarray(out).convert("RGB")
+
+        # --- Real compression on disk ---
+        # Albumentations `ImageCompression` simulates artifacts but the final file size
+        # depends on how we save. Apply codec-level compression here.
+        # JPEG: strong, realistic scan-like compression
+        q = 70
+        pil_out.save(
+            str(out_path),
+            format="JPEG",
+            quality=q,
+            optimize=True,
+            progressive=True,
+            subsampling=2,
+        )
     finally:
         doc.close()
 
@@ -169,7 +183,7 @@ def doc_pipeline(sampled_persona: str, style_map: Dict[str, Dict[str, float]], b
     )
     #logger.info("Render saved to: %s", pdf_path)
 
-    aug_img_path = f"{str(run_dir)}/doc.png"
+    aug_img_path = f"{str(run_dir)}/doc.jpg"
     augment_image(
         pdf_path=pdf_path,
         dpi=style_map["dpi"],

@@ -1,14 +1,14 @@
 import json
 import os
+import math
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
-
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.lib.utils import ImageReader
 
-from .count_bbox_size import wrap_text_to_lines
+from .count_bbox_size import pt_to_px
 
 
 def _px_to_pt(px: float, dpi: float) -> float:
@@ -87,8 +87,7 @@ def render_blocks_json_to_pdf(
         if not b:
             continue
 
-        btype = (b.get("type") or "paragraph").strip().lower()
-
+        btype = b["type"]
         bbox = b["bbox"]
         content = b.get("content", "")
 
@@ -96,24 +95,31 @@ def render_blocks_json_to_pdf(
 
         # Draw bbox frame
         if draw_frames:
+            c.saveState()
+            c.setLineWidth(0.25)
             c.rect(x_pt, y_pt, w_pt, h_pt, stroke=1, fill=0)
+            c.restoreState()
+
         # Draw per-word bbox frames (only if present in JSON)
-        # if draw_word_bboxes:
-        #     words = b.get("words")
-        #     if isinstance(words, list):
-        #         for wd in words:
-        #             if not isinstance(wd, dict):
-        #                 continue
-        #             wb = wd.get("bbox")
-        #             if not isinstance(wb, (list, tuple)) or len(wb) != 4:
-        #                 continue
-        #             wx_pt, wy_pt, ww_pt, wh_pt = _bbox_px_to_rect_pt(
-        #                 [float(wb[0]), float(wb[1]), float(wb[2]), float(wb[3])],
-        #                 page_w_px,
-        #                 page_h_px,
-        #                 dpi,
-        #             )
-        #             c.rect(wx_pt, wy_pt, ww_pt, wh_pt, stroke=1, fill=0)
+        if draw_word_bboxes:
+            words = b.get("words")
+            if isinstance(words, list):
+                for wd in words:
+                    if not isinstance(wd, dict):
+                        continue
+                    wb = wd.get("bbox")
+                    if not isinstance(wb, (list, tuple)) or len(wb) != 4:
+                        continue
+                    wx_pt, wy_pt, ww_pt, wh_pt = _bbox_px_to_rect_pt(
+                        [float(wb[0]), float(wb[1]), float(wb[2]), float(wb[3])],
+                        page_w_px,
+                        page_h_px,
+                        dpi,
+                    )
+                    c.saveState()
+                    c.setLineWidth(0.5)
+                    c.rect(wx_pt, wy_pt, ww_pt, wh_pt, stroke=1, fill=0)
+                    c.restoreState()
 
         # Render image for figure blocks
         if btype == "figure":
@@ -133,8 +139,6 @@ def render_blocks_json_to_pdf(
         # Style lookup for text blocks
         if style_map is None:
             raise ValueError("style_map must be provided for text blocks")
-        if btype not in style_map:
-            btype = "paragraph"
         st = style_map[btype]
 
         # Prepare text
@@ -142,37 +146,42 @@ def render_blocks_json_to_pdf(
         font_size = float(st["font_size"])
         leading = float(st["leading"])
 
+        # Padding (points) must match what was used in measure_bbox_size_for_block.
+        padding_pt = float(style_map["padding_pt"])
+        padding_px = pt_to_px(padding_pt, dpi)
+
         c.setFont(font_name, font_size)
 
-        # Wrap text to width using PX-based logic (must match bbox computation)
-        w_px = int(round(float(bbox[2]) - float(bbox[0])))
-        if w_px <= 0:
-            w_px = 1
-        lines = wrap_text_to_lines(
-            content,
-            max_text_width_px=w_px,
-            font_name=font_name,
-            font_size_pt=font_size,
-            dpi=int(dpi),
-        )
+        lines = b.get("lines", [""])
 
-        # Draw text starting from top-left INSIDE bbox (no padding)
-        # ReportLab y in text object is baseline; we place first baseline at (top - font_size).
+        # --- Baseline placement must be consistent with bbox height math ---
+        # measure_bbox_size_for_block assumes:
+        #   total height = (ascent - descent) + (n_lines-1)*leading (+ padding)
+        # and baselines advance by `leading`.
+        asc_pt = float(pdfmetrics.getAscent(font_name, font_size))
+        desc_pt = float(pdfmetrics.getDescent(font_name, font_size))
+
         top_y_pt = y_pt + h_pt
+        left_x_pt = x_pt + _px_to_pt(padding_px, dpi)
+
+        # Ensure the top of glyphs (baseline + ascent) sits at (top - padding)
+        first_baseline_y = top_y_pt - padding_pt - asc_pt
+
         text = c.beginText()
         text.setFont(font_name, font_size)
         text.setLeading(leading)
+        text.setTextOrigin(left_x_pt, first_baseline_y)
 
-        # No padding: start exactly at x_pt; baseline at top_y_pt - font_size
-        text.setTextOrigin(x_pt, top_y_pt - font_size)
+        # Manual vertical clipping aligned with ascent/descent + padding.
+        # Ensure the bottom of glyphs (baseline + descent) stays above (bottom + padding).
+        bottom_limit_y = y_pt + padding_pt
+        min_baseline_y = bottom_limit_y - desc_pt  # since desc_pt is negative
 
-        # Clip manually: stop when next baseline would go below bbox
-        min_baseline_y = y_pt  # baseline must stay >= y_pt
         for line in lines:
-            # If we are already below the box, stop (do not draw outside)
             if text.getY() < min_baseline_y:
                 break
-            text.textLine(line)
+            if line != "":
+                text.textLine(line)
 
         c.drawText(text)
 

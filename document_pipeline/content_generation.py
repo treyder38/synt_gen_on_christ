@@ -33,6 +33,7 @@ def _get_openai_client(base_url: str) -> OpenAI:
         api_key="EMPTY",
     )
 
+
 def _contains_non_latin_or_cyrillic_letters(text: str) -> bool:
     """Return True if text contains alphabetic letters outside Latin/Cyrillic.
 
