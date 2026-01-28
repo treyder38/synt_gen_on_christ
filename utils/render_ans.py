@@ -2,7 +2,7 @@ import json
 import os
 import math
 from typing import Dict, List, Tuple, Optional
-from pathlib import Path
+import io
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -45,7 +45,7 @@ def render_blocks_json_to_pdf(
     draw_frames: bool = True,
     draw_word_bboxes: bool = False,
     style_map: Optional[Dict[str, Dict[str, float]]] = None,
-    picture_path : str | Path | None = None
+    picture: io.BytesIO | None = None
 ) -> str:
     """
     Reads layout JSON of the form:
@@ -123,9 +123,17 @@ def render_blocks_json_to_pdf(
 
         # Render image for figure blocks
         if btype == "figure":
-            img_path = Path(picture_path)
+            if picture is None:
+                raise ValueError("picture must be provided when a block has type='figure'")
+
+            # Ensure we're at the start of the buffer before ReportLab reads it.
+            try:
+                picture.seek(0)
+            except Exception:
+                pass
+
             c.drawImage(
-                ImageReader(str(img_path)),
+                ImageReader(picture),
                 x_pt,
                 y_pt,
                 width=w_pt,

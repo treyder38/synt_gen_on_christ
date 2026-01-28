@@ -2,7 +2,7 @@ import json
 import random
 from typing import Any, Dict, List, Optional
 from PIL import Image
-from pathlib import Path
+import io
 import re
 
 from .count_bbox_size import measure_bbox_size_for_block, measure_bbox_size_for_one_word
@@ -28,7 +28,7 @@ def split_lines_to_tokens(
 def generate_json_with_sizes(
     layout_json: str | Dict[str, Any],
     style_map: Dict[str, Any] = None,
-    picture_path: str | Path | None = None,
+    picture: io.BytesIO | None = None,
 ) -> Dict[str, Any]:
     """
     Input JSON:
@@ -142,10 +142,17 @@ def generate_json_with_sizes(
             else:
                 max_width_px = 1040
 
-            if picture_path is None:
-                raise ValueError("picture_path must be provided when a block has type='figure'")
+            if picture is None:
+                raise ValueError("picture must be provided when a block has type='figure'")
 
-            with Image.open(picture_path) as im:
+            # Ensure we're at the start of the buffer before opening.
+            try:
+                picture.seek(0)
+            except Exception:
+                pass
+
+            with Image.open(picture) as im:
+                im.load()  # make sure size is reliable even for lazy loaders
                 w0, h0 = im.size
 
             # Force figure width to exactly max_width_px (no constraint on height here)

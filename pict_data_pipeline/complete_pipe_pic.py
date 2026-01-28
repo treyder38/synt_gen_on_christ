@@ -1,6 +1,11 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Optional
+import logging
+from pathlib import Path
+from datetime import datetime, timezone
+import uuid
+
 
 from pict_data_pipeline.topic_generation import generate_topic
 from pict_data_pipeline.data_generation import generate_data
@@ -11,19 +16,38 @@ from pict_data_pipeline.layout_generation_with_image import generate_layout
 from utils.generate_json_with_sizes import generate_json_with_sizes
 from utils.render_ans import render_blocks_json_to_pdf
 
-import logging
 
 logger = logging.getLogger(__name__)
 
 
-def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Optional[Dict[str, Dict[str, float]]]) -> None:
+OUT_ROOT = Path("/home/jovyan/people/Glebov/synt_gen_2/pict_data_pipeline/out")
+
+
+def _make_next_run_dir() -> Path:
+    """Create a unique run directory under out/<time>_<uuid>/.
+
+    Time is UTC in format YYYYMMDDTHHMMSSZ to keep lexicographic order.
+    """
+    OUT_ROOT.mkdir(parents=True, exist_ok=True)
+
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    run_id = f"{ts}_{uuid.uuid4().hex}"
+
+    run_dir = OUT_ROOT / run_id
+    run_dir.mkdir(parents=True, exist_ok=False)
+    return run_dir
+
+
+def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Dict[str, Dict[str, float]], base_url: str) -> Path:
 
     MODEL = "Qwen/Qwen2.5-32B-Instruct"
 
-    topic = generate_topic(sampled_persona, model = MODEL, figure_type=figure_type)
+    run_dir = _make_next_run_dir()
+
+    topic = generate_topic(sampled_persona, model = MODEL, figure_type=figure_type, base_url=base_url)
     logger.info("Topic: %s", topic)
 
-    data = generate_data(sampled_persona, topic, model = MODEL, figure_type=figure_type)
+    data = generate_data(sampled_persona, topic, model = MODEL, figure_type=figure_type, base_url=base_url)
     logger.info("Data: %s", data)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -34,6 +58,7 @@ def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Optional[Dic
             model=MODEL,
             data=data,
             figure_type=figure_type,
+            base_url=base_url
         )
         future_text = executor.submit(
             generate_text,
@@ -41,6 +66,7 @@ def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Optional[Dic
             topic,
             model=MODEL,
             data=data,
+            base_url=base_url
         )
 
         code = future_code.result()
@@ -49,9 +75,7 @@ def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Optional[Dic
     logger.info("Code: %s", code)
     logger.info("Text: %s", text)
 
-    filename = f"/home/jovyan/people/Glebov/synt_gen_2/pict_data_pipeline/out/graph.png"
-    out_pic_file = save_generated_image(code, filename)
-    logger.info("Pic saved to: %s", out_pic_file)
+    picture = save_generated_image(code)
 
     split_json = split_to_blocks(text=text, figure_type=figure_type)
     # Put the generated data into the figure block content
@@ -60,28 +84,31 @@ def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Optional[Dic
         if b.get("type") == "figure":
             b["content"] = figure_payload
             break
-    out_path = "/home/jovyan/people/Glebov/synt_gen_2/pict_data_pipeline/out/split.json"
+        
+    out_path = f"{str(run_dir)}/split.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(split_json, f, ensure_ascii=False, indent=2)
     logger.info("Split saved to: %s", out_path)
 
-    json_with_bbox_sizes = generate_json_with_sizes(split_json, style_map=style_map, picture_path=out_pic_file)
-    out_path = "/home/jovyan/people/Glebov/synt_gen_2/pict_data_pipeline/out/json_with_bbox_sizes.json"
+    json_with_bbox_sizes = generate_json_with_sizes(split_json, style_map=style_map, picture=picture)
+    out_path = f"{str(run_dir)}/json_with_bbox_sizes.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(json_with_bbox_sizes, f, ensure_ascii=False, indent=2)
     logger.info("json_with_bbox_sizes saved to: %s", out_path)
 
-    final_layout = generate_layout(data = json_with_bbox_sizes)
-    out_path = "/home/jovyan/people/Glebov/synt_gen_2/pict_data_pipeline/out/ans.json"
+    final_layout = generate_layout(data = json_with_bbox_sizes, style_map=style_map)
+    out_path = f"{str(run_dir)}/ans.json"
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(final_layout, f, ensure_ascii=False, indent=2)
     logger.info("Layout saved to: %s", out_path)
 
     pdf_path = render_blocks_json_to_pdf(
-        "/home/jovyan/people/Glebov/synt_gen_2/pict_data_pipeline/out/ans.json",
-        out_pdf_path="/home/jovyan/people/Glebov/synt_gen_2/pict_data_pipeline/out/out.pdf",
+        f"{str(run_dir)}/ans.json",
+        out_pdf_path=f"{str(run_dir)}/out.pdf",
         draw_frames=False,
         style_map=style_map,
-        picture_path=out_pic_file
+        picture=picture
     )
     logger.info("Render saved to: %s", pdf_path)
+
+    return run_dir

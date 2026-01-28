@@ -352,7 +352,7 @@ def main() -> None:
     parser.add_argument(
         "--base_seed",
         type=int,
-        default=54321,
+        default=14321,
         help="Base seed used to derive per-sample seeds (base_seed + idx).",
     )
     parser.add_argument(
@@ -523,14 +523,14 @@ def main() -> None:
             pbar.update(1)
 
             if not res.get("ok", False):
-                # logger.error(
-                #     "Failed to generate sample %d/%d (type=%s). Error: %s\n%s",
-                #     res.get("idx", -1) + 1,
-                #     n_total,
-                #     args.type,
-                #     res.get("error"),
-                #     res.get("traceback"),
-                # )
+                logger.error(
+                    "Failed to generate sample %d/%d (type=%s). Error: %s\n%s",
+                    res.get("idx", -1) + 1,
+                    n_total,
+                    args.type,
+                    res.get("error"),
+                    res.get("traceback"),
+                )
                 continue
 
             out_dir = str(res["out_dir"])
@@ -554,8 +554,8 @@ def main() -> None:
 
             # logger.info("Current batch: %.2f GB (target %.2f GB).", batch_bytes / (1024**3), target_bytes / (1024**3))
 
-            if batch_bytes >= target_bytes:
-                flush_batch()
+            # if batch_bytes >= target_bytes:
+            #     flush_batch()
     finally:
         pbar.close()
         # Ensure workers exit
@@ -564,7 +564,7 @@ def main() -> None:
                 p.join(timeout=1.0)
 
     # Flush remaining
-    flush_batch()
+    # flush_batch()
 
 
 if __name__ == "__main__":

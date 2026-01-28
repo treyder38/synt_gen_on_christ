@@ -36,7 +36,6 @@ def generate_layout(
     v_gap = int(style_map.get("v_gap", 24))
 
     out = deepcopy(data)
-    out["page"] = {"width": page_w, "height": page_h, "dpi": dpi}
 
     # Геометрия страницы
     full_w = page_w - 2 * margin

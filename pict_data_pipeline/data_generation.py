@@ -2,6 +2,7 @@ import os
 import json
 from typing import Any, Dict
 from openai import OpenAI
+from functools import lru_cache
 
 
 GENERATE_DOCUMENT_DATA_JSON_PROMPT = """You are an expert in data analysis and have broad knowledge about various topics.
@@ -17,15 +18,17 @@ Here are the requirements:
 6. All data must be in Russian, even if the persona is non-Russian."""
 
 
-def generate_data(persona: str, topic: str, model: str, figure_type: str) -> str:
-    
-    base_url = os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1")
-    api_key = os.environ.get("VLLM_API_KEY", "EMPTY")
-
-    client = OpenAI(
+@lru_cache(maxsize=32)
+def _get_openai_client(base_url: str) -> OpenAI:
+    return OpenAI(
         base_url=base_url,
-        api_key=api_key,
+        api_key="EMPTY",
     )
+
+
+def generate_data(persona: str, topic: str, model: str, figure_type: str, base_url: str) -> str:
+    
+    client = _get_openai_client(base_url)
 
     prompt = GENERATE_DOCUMENT_DATA_JSON_PROMPT.format(persona=persona, topic=topic, figure_type=figure_type)
 

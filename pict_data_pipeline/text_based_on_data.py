@@ -2,6 +2,7 @@ import os
 import json
 from typing import Any, Dict
 from openai import OpenAI
+from functools import lru_cache
 
 
 GENERATE_DOCUMENT_TEXT_JSON_PROMPT = """You are an expert writer.
@@ -28,15 +29,17 @@ Here are the requirements:
 - Do NOT use asterisks for emphasis or formatting. Use plain text only."""
 
 
-def generate_text(persona: str, topic: str, model: str, data: str) -> str:
-    
-    base_url = os.environ.get("VLLM_BASE_URL", "http://localhost:8000/v1")
-    api_key = os.environ.get("VLLM_API_KEY", "EMPTY")
-
-    client = OpenAI(
+@lru_cache(maxsize=32)
+def _get_openai_client(base_url: str) -> OpenAI:
+    return OpenAI(
         base_url=base_url,
-        api_key=api_key,
+        api_key="EMPTY",
     )
+
+
+def generate_text(persona: str, topic: str, model: str, data: str, base_url: str) -> str:
+    
+    client = _get_openai_client(base_url)
 
     prompt = GENERATE_DOCUMENT_TEXT_JSON_PROMPT.format(persona=persona, topic=topic, data=data)
 

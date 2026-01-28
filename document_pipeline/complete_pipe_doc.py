@@ -21,7 +21,7 @@ from utils.render_ans import render_blocks_json_to_pdf
 logger = logging.getLogger(__name__)
 
 
-OUT_ROOT = Path("/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out")
+OUT_ROOT = Path("/home/jovyan/people/Glebov/synt_gen_2/out")
 
 
 def _make_next_run_dir() -> Path:
