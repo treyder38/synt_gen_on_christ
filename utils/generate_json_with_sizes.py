@@ -166,7 +166,7 @@ def generate_json_with_sizes(
         if b_type != "figure":
             b2["words"] = words_out
 
-        if lines != []:
+        if lines != [] and b_type != "figure":
             b2["lines"] = lines
 
         out_blocks.append(b2)

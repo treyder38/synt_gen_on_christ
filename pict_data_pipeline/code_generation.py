@@ -111,8 +111,8 @@ def extract_python_code(maybe_fenced: str) -> str:
 
 def save_generated_image(
     code_from_model: str,
-    *,
     timeout_s: float = 120.0,
+    sbx: Sandbox | None = None,
 ) -> io.BytesIO:
     """Executes model-generated code in an E2B sandbox and returns decoded image bytes.
 
@@ -129,13 +129,17 @@ buf = generate_plot()
 print("BYTES_B64:" + base64.b64encode(buf.getvalue()).decode("ascii"))
 """
 
-    with Sandbox.create() as sbx:
+    if sbx is None:
+        with Sandbox.create() as sbx:
+            exec_res = sbx.run_code(code_to_run, timeout=timeout_s)
+    else:
         exec_res = sbx.run_code(code_to_run, timeout=timeout_s)
-        if getattr(exec_res, "error", None):
-            raise RuntimeError(f"E2B execution error: {exec_res.error}")
+
+    if getattr(exec_res, "error", None):
+        raise RuntimeError(f"E2B execution error: {exec_res.error}")
         
-        b64 = extract_b64(exec_res.logs.stdout[0])
-        raw = base64.b64decode(b64, validate=False)
+    b64 = extract_b64(exec_res.logs.stdout[0])
+    raw = base64.b64decode(b64, validate=False)
 
     out_buf = io.BytesIO(raw)
     out_buf.seek(0)

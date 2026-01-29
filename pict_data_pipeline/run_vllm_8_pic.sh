@@ -1,20 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODEL="mistralai/Mistral-Nemo-Instruct-2407"
+MODEL="Qwen/Qwen2.5-14B-Instruct"
 HOST="0.0.0.0"
 BASE_PORT=8000
 MAX_NUM_SEQS=2
 
 export TOKENIZERS_PARALLELISM=false
-export HF_HOME="/home/jovyan/people/Glebov/synt_gen_2/hf_cache"
-export TRANSFORMERS_CACHE="${TRANSFORMERS_CACHE:-$HF_HOME}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
 
-mkdir -p "/home/jovyan/people/Glebov/synt_gen_2/logs"
-mkdir -p "$HF_HOME"
+mkdir -p "/home/jovyan/people/Glebov/synt_gen_2/logs_for_pic"
 
-for GPU in 0 1 2 3 4 5 6; do
+for GPU in 0 1 2 3 4 5 6 7; do
   PORT=$((BASE_PORT + GPU))
 
   echo "Starting vLLM on GPU=$GPU PORT=$PORT ..."
@@ -25,11 +22,11 @@ for GPU in 0 1 2 3 4 5 6; do
       --port "$PORT" \
       --tensor-parallel-size 1 \
       --pipeline-parallel-size 1 \
-      --gpu-memory-utilization 0.90 \
+      --gpu-memory-utilization 0.97 \
       --max-model-len 4096 \
       --max-num-seqs "$MAX_NUM_SEQS" \
       --served-model-name "$MODEL" \
-      > "/home/jovyan/people/Glebov/synt_gen_2/logs/vllm_gpu${GPU}.log" 2>&1 &
+      > "/home/jovyan/people/Glebov/synt_gen_2/logs_for_pic/vllm_gpu${GPU}.log" 2>&1 &
 done
 
-echo "All started. Tail logs: tail -f /home/jovyan/people/Glebov/synt_gen_2/logs/vllm_gpu*.log"
+echo "All started. Tail logs: tail -f /home/jovyan/people/Glebov/synt_gen_2/logs_for_pic/vllm_gpu*.log"

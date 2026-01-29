@@ -223,7 +223,7 @@ def safe_rmtree(path: str) -> None:
 @dataclass
 class GenTask:
     idx: int
-    vis_type: Optional[str]
+    pic: str
     seed: int
 
 
@@ -275,6 +275,9 @@ def _worker_loop(
     from pict_data_pipeline.complete_pipe_pic import pic_pipeline
     from document_pipeline.complete_pipe_doc import doc_pipeline
 
+    from e2b_code_interpreter import Sandbox
+    sbx = None  # sandbox на воркер (используется только для генерации картинок)
+
     # Each process must register fonts in its own ReportLab registry.
     register_fonts(fonts_dir)
 
@@ -285,6 +288,11 @@ def _worker_loop(
             continue
 
         if task is None:
+            if sbx is not None:
+                try:
+                    sbx.close()
+                except Exception:
+                    pass
             return
 
         out_dir: Optional[str] = None
@@ -294,10 +302,58 @@ def _worker_loop(
 
             sample_random_fonts_for_style_map(style_map, fonts_dir, seed=task.seed)
             sampled_persona = sample_persona(personas_path, seed=task.seed)
-            if task.vis_type is None:
+            if task.pic == "n":
                 out_dir = doc_pipeline(sampled_persona, style_map, base_url=f"{vllm_base_url}/v1")
             else:
-                out_dir = pic_pipeline(sampled_persona, task.vis_type, style_map, base_url=f"{vllm_base_url}/v1")
+                if sbx is None:
+                    sbx = Sandbox.create()
+                _figure_types = [
+                    # Core 2D plots
+                    "line plot",
+                    "multi-line plot",
+                    "step plot",
+                    "stem plot",
+                    "scatter plot",
+                    "bubble chart",
+                    "bar chart",
+                    "grouped bar chart",
+                    "stacked bar chart",
+                    "horizontal bar chart",
+                    "stacked horizontal bar chart",
+                    "histogram",
+                    "stacked histogram",
+                    "density plot",
+                    "area chart",
+                    "stacked area chart",
+                    "pie chart",
+                    "donut chart",
+                    "box plot",
+                    "violin plot",
+                    "strip plot",
+                    "swarm plot",
+                    "error bar plot",
+                    "bar chart with error bars",
+                    "scatter plot with error bars",
+
+                    # Heatmaps / grids
+                    "heatmap",
+                    "annotated heatmap",
+                    "correlation heatmap",
+
+                    # Contours / fields
+                    "contour plot",
+                    "filled contour plot",
+                    "quiver plot",
+                    "streamplot",
+                    "hexbin plot",
+
+                    # Time-series / ranges
+                    "time series line plot",
+                    "time series area chart",
+                    "fill between plot",
+                ]
+                figure_type = rng.choice(_figure_types)
+                out_dir = pic_pipeline(sampled_persona, figure_type, style_map, base_url=f"{vllm_base_url}/v1", sbx=sbx)
 
             sz = get_dir_size_bytes(out_dir)
             result_q.put({
@@ -331,11 +387,11 @@ def main() -> None:
 
     parser = ArgumentParser()
     parser.add_argument(
-        "-t",
-        "--type",
+        "--pic",
         type=str,
-        default=None,
-        help="The types of visualizations to generate. If omitted, generates documents.",
+        default="n",
+        choices=["y", "n"],
+        help="Generate pictures (y) or documents (n).",
     )
     parser.add_argument(
         "--n_samples",
@@ -470,7 +526,6 @@ def main() -> None:
                 safe_rmtree(d)
             logger.info("Batch uploaded and local sample dirs removed.")
         except Exception as e:
-            # DO NOT delete anything on failure; keep artifacts for debugging / retry.
             logger.error(
                 "S3 upload FAILED for %s -> s3://%s/%s. Keeping local archive and dirs. Error: %s",
                 archive_path,
@@ -479,6 +534,9 @@ def main() -> None:
                 e,
             )
             logger.error("Traceback:\n%s", traceback.format_exc())
+            for d in batch_dirs:
+                safe_rmtree(d)
+            logger.info("Local sample dirs removed after the error.")
             return
 
         batch_dirs = []
@@ -507,7 +565,7 @@ def main() -> None:
     # Enqueue tasks
     for i in range(n_total):
         seed = int(args.base_seed) + i
-        task_q.put(GenTask(idx=i, vis_type=args.type, seed=seed))
+        task_q.put(GenTask(idx=i, pic=args.pic, seed=seed))
 
     # Tell workers to stop
     for _ in range(n_workers):
@@ -523,14 +581,14 @@ def main() -> None:
             pbar.update(1)
 
             if not res.get("ok", False):
-                logger.error(
-                    "Failed to generate sample %d/%d (type=%s). Error: %s\n%s",
-                    res.get("idx", -1) + 1,
-                    n_total,
-                    args.type,
-                    res.get("error"),
-                    res.get("traceback"),
-                )
+                # logger.error(
+                #     "Failed to generate sample %d/%d (pic=%s). Error: %s\n%s",
+                #     res.get("idx", -1) + 1,
+                #     n_total,
+                #     args.pic,
+                #     res.get("error"),
+                #     res.get("traceback"),
+                # )
                 continue
 
             out_dir = str(res["out_dir"])
@@ -564,7 +622,7 @@ def main() -> None:
                 p.join(timeout=1.0)
 
     # Flush remaining
-    # flush_batch()
+    #flush_batch()
 
 
 if __name__ == "__main__":

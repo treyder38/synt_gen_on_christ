@@ -1,6 +1,6 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
-from typing import Dict, Optional
+from typing import Dict, Optional, Any
 import logging
 from pathlib import Path
 from datetime import datetime, timezone
@@ -57,9 +57,9 @@ def _make_next_run_dir() -> Path:
     return run_dir
 
 
-def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Dict[str, Dict[str, float]], base_url: str) -> Path:
+def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Dict[str, Dict[str, float]], base_url: str, sbx: Any | None = None) -> Path:
 
-    MODEL = "Qwen/Qwen2.5-32B-Instruct"
+    MODEL = "Qwen/Qwen2.5-14B-Instruct"
 
     run_dir = _make_next_run_dir()
 
@@ -94,7 +94,7 @@ def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Dict[str, Di
     # logger.info("Code: %s", code)
     # logger.info("Text: %s", text)
 
-    picture = save_generated_image(code)
+    picture = save_generated_image(code, sbx=sbx)
 
     split_json = split_to_blocks(text=text, figure_type=figure_type)
     # Put the generated data into the figure block content
@@ -125,6 +125,7 @@ def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Dict[str, Di
         f"{str(run_dir)}/ans.json",
         out_pdf_path=f"{str(run_dir)}/out.pdf",
         draw_frames=False,
+        draw_word_bboxes=False,
         style_map=style_map,
         picture=picture
     )
