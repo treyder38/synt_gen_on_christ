@@ -30,8 +30,8 @@ logging.basicConfig(
 
 
 logger = logging.getLogger(__name__)
-# Silence very noisy dependency loggers (otherwise they flood stdout when root level=INFO)
-for _name in ("openai", "httpx", "httpcore", "urllib3"):
+# Silence very noisy dependency loggers
+for _name in ("openai", "httpx", "httpcore", "urllib3", "e2b", "e2b.sandbox", "e2b.api", "e2b.client", "e2b.http", "e2b_core"):
     logging.getLogger(_name).setLevel(logging.WARNING)
 
 
@@ -352,7 +352,7 @@ def main() -> None:
     parser.add_argument(
         "--base_seed",
         type=int,
-        default=14321,
+        default=18328,
         help="Base seed used to derive per-sample seeds (base_seed + idx).",
     )
     parser.add_argument(

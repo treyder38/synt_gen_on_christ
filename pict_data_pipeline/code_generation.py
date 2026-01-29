@@ -8,7 +8,6 @@ from e2b_code_interpreter import Sandbox
 
 _B64_RE = re.compile(r"^BYTES_B64:([A-Za-z0-9+/=]+)\s*$")
 
-
 GENERATE_CHART_CODE_MATPLOTLIB_PROMPT = """You are an expert Python data analyst who writes clean, executable `matplotlib` code.
 
 My persona is: "{persona}"
@@ -39,7 +38,7 @@ Requirements:
    - Define a function named `generate_plot()`.
    - The function must use the already-created `df`.
    - Do not pass any arguments to the function.
-   - The function must create the plot.
+   - The function must create the plot and **must not call itself**.
 
 3. Plotting rules:
    - Use `matplotlib` only.
@@ -48,12 +47,17 @@ Requirements:
    - All text shown on the chart MUST be in Russian (Cyrillic). This includes the title, axis labels, legend labels, tick labels, annotations, and any other on-figure text. 
 
 4. Output handling:
-   - Save the figure to a `BytesIO` buffer (`io.BytesIO`).
-   - `generate_plot()` MUST return this `io.BytesIO` buffer (positioned at start via `buf.seek(0)`).
+   - Save the figure to a `BytesIO` buffer.
+   - Return the plot as a `BytesIO` object.
    - Do **not** close the `BytesIO` buffer.
    - Use `bbox_inches='tight'` or `plt.tight_layout()`.
    - Do not display the plot (`plt.show()` is forbidden).
+
+5. Code-only output:
    - Import all required libraries.
+   - Do not include explanations, comments outside the code, or any extra text.
+   - Do not include example usage.
+   - The response must consist of a **single Python code block only**, starting with ```python and ending with ```.
 """
 
 
@@ -74,7 +78,7 @@ def generate_code(persona: str, topic: str, model: str, data: str, figure_type: 
     completion = client.chat.completions.create(
         model=model,
         messages=[
-            {"role": "system", "content": "Return ONLY raw executable Python source code as plain text. DO NOT use markdown fences/backticks, and do not add any explanations."},
+            {"role": "system", "content": "Return ONLY a single Python code block (```python ... ```). No extra text."},
             {"role": "user", "content": prompt},
         ],
         temperature=0.4,
@@ -98,16 +102,19 @@ def extract_b64(line: str) -> str:
     return m.group(1)
 
 
+def extract_python_code(maybe_fenced: str) -> str:
+    """Extract python code from a fenced markdown block if present."""
+    s = (maybe_fenced or "").strip()
+    m = re.search(r"```(?:python)?\s*(.*?)\s*```", s, flags=re.DOTALL | re.IGNORECASE)
+    return (m.group(1).strip() if m else s)
+
+
 def save_generated_image(
     code_from_model: str,
     *,
     timeout_s: float = 120.0,
 ) -> io.BytesIO:
     """Executes model-generated code in an E2B sandbox and returns decoded image bytes.
-
-    Contract: the model-generated code must output a base64-encoded file to stdout.
-    Preferred format: a line starting with `BYTES_B64:` followed by base64.
-    Fallback: if the marker is absent, the last non-empty stdout line is treated as base64.
 
     Returns:
         io.BytesIO: buffer positioned at start (seek(0)) containing the decoded bytes.
@@ -117,7 +124,7 @@ def save_generated_image(
     code_to_run = f"""
 import io
 import base64
-{code_from_model}
+{extract_python_code(code_from_model)}
 buf = generate_plot()
 print("BYTES_B64:" + base64.b64encode(buf.getvalue()).decode("ascii"))
 """

@@ -12,7 +12,7 @@ I need some data about "{topic}", which can be used to generate a {figure_type}.
 Here are the requirements:
 1. The data structure must be suitable for the {figure_type}.
 2. The contents are related to the topic and customized according to my persona.
-3. The data should be realistic, and the contents should be named using real-world entities. Do not use placeholder names like xxA, xxB, etc.
+3. The data should be realistic, and the contents should be named using Russian real-world entities. Do not use placeholder names like xxA, xxB, etc.
 4. The data should be diverse and contain multiple data points to ensure the chart is informative.
 5. Do not provide too much data. Just necessary data points to satisfy the topic and figure type.
 6. All data must be in Russian, even if the persona is non-Russian."""

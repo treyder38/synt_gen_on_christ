@@ -20,7 +20,7 @@ Do not invent facts that contradict the data; use the data as the factual backbo
 
 Here are the requirements:
 1. The text must be directly based on the provided data and customized according to the given persona.
-2. The text must be realistic and grounded in real-world context. Use real-world entities, names, places, dates, and organizations when they are present in the data.
+2. The text must be realistic and grounded in Russian real-world context. Use Russian real-world entities, names, places, dates, and organizations when they are present in the data.
    Do NOT introduce placeholder names such as xxA, xxB, John Doe, or template markers like [Name], [Date], etc.
 3. The text should cover different relevant aspects implied by the data to make the document informative, but concise.
 4. The output must be written entirely in Russian, even if the persona is non-Russian.
