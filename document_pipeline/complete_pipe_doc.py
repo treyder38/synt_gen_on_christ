@@ -174,7 +174,7 @@ def doc_pipeline(sampled_persona: str, style_map: Dict[str, Dict[str, float]], b
         json.dump(final_layout, f, ensure_ascii=False, indent=2)
     #logger.info("Layout saved to: %s", str(out_path))
 
-    pdf_path = render_blocks_json_to_pdf(
+    pdf_path1 = render_blocks_json_to_pdf(
         json_path=f"{str(run_dir)}/ans.json",
         out_pdf_path=f"{str(run_dir)}/out.pdf",
         draw_frames=False,
@@ -182,15 +182,34 @@ def doc_pipeline(sampled_persona: str, style_map: Dict[str, Dict[str, float]], b
         style_map=style_map,
     )
     #logger.info("Render saved to: %s", pdf_path)
-
-    aug_img_path = f"{str(run_dir)}/doc.jpg"
+    aug_img_path1 = f"{str(run_dir)}/doc1.jpg"
     augment_image(
-        pdf_path=pdf_path,
+        pdf_path=pdf_path1,
         dpi=style_map["dpi"],
-        out_image_path=aug_img_path
+        out_image_path=aug_img_path1
+    )
+    os.remove(pdf_path1)
+
+    style_map["title"]["font_name"] = style_map["title"]["font_name2"]
+    style_map["header"]["font_name"] = style_map["header"]["font_name2"]
+    style_map["paragraph"]["font_name"] = style_map["paragraph"]["font_name2"]
+
+    pdf_path2 = render_blocks_json_to_pdf(
+        json_path=f"{str(run_dir)}/ans.json",
+        out_pdf_path=f"{str(run_dir)}/out.pdf",
+        draw_frames=False,
+        draw_word_bboxes=False,
+        style_map=style_map,
+    )
+
+    aug_img_path2 = f"{str(run_dir)}/doc2.jpg"
+    augment_image(
+        pdf_path=pdf_path2,
+        dpi=style_map["dpi"],
+        out_image_path=aug_img_path2
     )
     #logger.info("Augmented page saved to: %s", aug_img_path)
 
-    os.remove(pdf_path)
+    os.remove(pdf_path2)
 
     return run_dir

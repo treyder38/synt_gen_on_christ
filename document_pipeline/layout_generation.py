@@ -263,6 +263,8 @@ def generate_layout(
             bb["bbox_size"] = [w0, h0]
             bb["bbox"] = [x1, y1, x2, y2]
             bb["font"] = style_map[bb["type"]]["font_name"]
+            bb["font2"] = style_map[bb["type"]]["font_name2"]
+
 
             words_laid = layout_words(
                 bb,
@@ -312,6 +314,8 @@ def generate_layout(
             bb["bbox_size"] = [w0, h0]
             bb["bbox"] = [x1, y1, x2, y2]
             bb["font"] = style_map[bb["type"]]["font_name"]
+            bb["font2"] = style_map[bb["type"]]["font_name2"]
+
 
             words_laid = layout_words(
                 bb,

@@ -87,7 +87,7 @@ def generate_json_with_sizes(
                 else:
                     max_width_px = 1040
 
-            w, h, lines = measure_bbox_size_for_block(
+            w_font_1, h_font_1, lines1 = measure_bbox_size_for_block(
                 content,
                 max_width_px=max_width_px,
                 font_name=font_name,
@@ -96,6 +96,24 @@ def generate_json_with_sizes(
                 padding_pt=padding_pt,
                 dpi=dpi,
             )
+
+            w_font_2, h_font_2, lines2 = measure_bbox_size_for_block(
+                content,
+                max_width_px=max_width_px,
+                font_name=style["font_name2"],
+                font_size_pt=font_size_pt,
+                leading_pt=leading_pt,
+                padding_pt=padding_pt,
+                dpi=dpi,
+            )
+
+            w = max(w_font_1, w_font_2)
+            h = max(h_font_1, h_font_2)
+
+            if h_font_1 > h_font_2:
+                lines = lines1
+            else:
+                lines = lines2
 
             #### TOKENIZE AND COUNT SIZES ####
             words_out: List[Dict[str, Any]] = []

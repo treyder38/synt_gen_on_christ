@@ -98,10 +98,17 @@ def sample_random_fonts_for_style_map(style_map: dict[str, Any], fonts_dir: str,
         )
 
     block_keys = [k for k, v in style_map.items() if isinstance(v, dict) and "font_name" in v]
-    picks = random.sample(font_names, k=min(len(block_keys), len(font_names)))
 
-    for i, key in enumerate(block_keys):
-        style_map[key]["font_name"] = picks[i % len(picks)]
+    for key in block_keys:
+        # Pick primary font
+        f1 = random.choice(font_names)
+        style_map[key]["font_name"] = f1
+
+        # Pick secondary font (different from primary when possible)
+        if isinstance(style_map.get(key), dict) and "font_name2" in style_map[key]:
+            alternatives = [f for f in font_names if f != f1]
+            f2 = random.choice(alternatives) if alternatives else f1
+            style_map[key]["font_name2"] = f2
 
 
 def sample_persona(path: str, seed: Optional[int] = None) -> str:
@@ -241,16 +248,19 @@ def build_style_map(rng: random.Random) -> dict[str, Any]:
             "font_size": float(rng.randint(13, 19)),
             "leading": float(rng.randint(13, 15)),
             "font_name": "Caveat-Bold.ttf",
+            "font_name2": "Caveat-Bold.ttf",
         },
         "header": {
             "font_size": float(rng.randint(13, 15)),
             "leading": float(rng.randint(8, 13)),
             "font_name": "Caveat-SemiBold.ttf",
+            "font_name2": "Caveat-Bold.ttf",
         },
         "paragraph": {
             "font_size": float(rng.randint(9, 13)),
             "leading": float(rng.randint(8, 12)),
             "font_name": "Caveat-Regular.ttf",
+            "font_name2": "Caveat-Bold.ttf",
         },
     }
 
@@ -612,8 +622,8 @@ def main() -> None:
 
             # logger.info("Current batch: %.2f GB (target %.2f GB).", batch_bytes / (1024**3), target_bytes / (1024**3))
 
-            # if batch_bytes >= target_bytes:
-            #     flush_batch()
+            if batch_bytes >= target_bytes:
+                flush_batch()
     finally:
         pbar.close()
         # Ensure workers exit
@@ -622,7 +632,7 @@ def main() -> None:
                 p.join(timeout=1.0)
 
     # Flush remaining
-    #flush_batch()
+    flush_batch()
 
 
 if __name__ == "__main__":
