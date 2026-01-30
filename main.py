@@ -276,7 +276,63 @@ def _worker_loop(
     from document_pipeline.complete_pipe_doc import doc_pipeline
 
     from e2b_code_interpreter import Sandbox
+    from e2b.exceptions import RateLimitException
     sbx = None  # sandbox на воркер (используется только для генерации картинок)
+    sbx_created_at = 0.0
+
+    def _close_sbx() -> None:
+        nonlocal sbx
+        if sbx is not None:
+            try:
+                # Prefer hard-kill if available to avoid leaving active sandboxes behind.
+                if hasattr(sbx, "kill"):
+                    sbx.kill()
+                else:
+                    sbx.close()
+            except Exception:
+                pass
+            sbx = None
+
+    def _ensure_sbx() -> None:
+        """Ensure a live sandbox exists and periodically recreate it.
+
+        For Hobby, we must set sandbox lifetime explicitly; default can be ~5 min.
+        We set lifetime to 1 hour and proactively recreate ~55 min.
+        Also, Sandbox.create() can hit 429 if too many concurrent sandboxes exist; use backoff.
+        """
+        nonlocal sbx, sbx_created_at
+        now = time.time()
+
+        # Recreate after ~55 minutes to stay below 1-hour session limits.
+        if sbx is not None and (now - sbx_created_at) <= 55 * 60:
+            return
+
+        _close_sbx()
+
+        backoff = 2.0
+        last_err: Exception | None = None
+        for _ in range(5):
+            try:
+                # IMPORTANT: set sandbox lifetime at create time (otherwise it may expire quickly).
+                sbx = Sandbox.create(timeout=60 * 60)
+                # Extra safety if SDK supports resetting timeout.
+                if hasattr(sbx, "set_timeout"):
+                    try:
+                        sbx.set_timeout(60 * 60)
+                    except Exception:
+                        pass
+                sbx_created_at = time.time()
+                return
+            except RateLimitException as e:
+                last_err = e
+                time.sleep(backoff)
+                backoff = min(backoff * 2.0, 60.0)
+            except Exception as e:
+                last_err = e
+                time.sleep(backoff)
+                backoff = min(backoff * 2.0, 60.0)
+
+        raise RuntimeError(f"Failed to create E2B sandbox after retries: {last_err}")
 
     # Each process must register fonts in its own ReportLab registry.
     register_fonts(fonts_dir)
@@ -288,11 +344,7 @@ def _worker_loop(
             continue
 
         if task is None:
-            if sbx is not None:
-                try:
-                    sbx.close()
-                except Exception:
-                    pass
+            _close_sbx()
             return
 
         out_dir: Optional[str] = None
@@ -305,8 +357,7 @@ def _worker_loop(
             if task.pic == "n":
                 out_dir = doc_pipeline(sampled_persona, style_map, base_url=f"{vllm_base_url}/v1")
             else:
-                if sbx is None:
-                    sbx = Sandbox.create()
+                _ensure_sbx()
                 _figure_types = [
                     # Core 2D plots
                     "line plot",
@@ -353,7 +404,41 @@ def _worker_loop(
                     "fill between plot",
                 ]
                 figure_type = rng.choice(_figure_types)
-                out_dir = pic_pipeline(sampled_persona, figure_type, style_map, base_url=f"{vllm_base_url}/v1", sbx=sbx)
+                try:
+                    out_dir = pic_pipeline(
+                        sampled_persona,
+                        figure_type,
+                        style_map,
+                        base_url=f"{vllm_base_url}/v1",
+                        sbx=sbx,
+                    )
+                except Exception as e:
+                    # If sandbox expired / was GC'ed / connection issue, recreate once and retry.
+                    msg = str(e)
+                    low = msg.lower()
+                    sandboxish = (
+                        "sandbox" in low
+                        or "e2b" in low
+                        or "not found" in low
+                        or "was not found" in low
+                        or "code\":502" in low
+                        or "429" in low
+                        or "rate limit" in low
+                        or "timeout" in low
+                        or "connection" in low
+                    )
+                    if sandboxish:
+                        _close_sbx()
+                        _ensure_sbx()
+                        out_dir = pic_pipeline(
+                            sampled_persona,
+                            figure_type,
+                            style_map,
+                            base_url=f"{vllm_base_url}/v1",
+                            sbx=sbx,
+                        )
+                    else:
+                        raise
 
             sz = get_dir_size_bytes(out_dir)
             result_q.put({
@@ -408,7 +493,7 @@ def main() -> None:
     parser.add_argument(
         "--base_seed",
         type=int,
-        default=18328,
+        default=29328,
         help="Base seed used to derive per-sample seeds (base_seed + idx).",
     )
     parser.add_argument(
@@ -486,7 +571,10 @@ def main() -> None:
 
         ts = time.strftime("%Y%m%d_%H%M%S")
         archive_name = f"batch_{batch_idx:05d}_{ts}_{uuid.uuid4().hex}.tar.gz"
-        archive_path = str(Path("/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out") / archive_name)
+        if args.pic == "n":
+            archive_path = str(Path("/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out") / archive_name)
+        else:
+            archive_path = str(Path("/home/jovyan/people/Glebov/synt_gen_2/pict_data_pipeline/out") / archive_name)
 
         logger.info(
             "Archiving %d sample dirs (~%.2f GB) -> %s",
@@ -527,7 +615,7 @@ def main() -> None:
             logger.info("Batch uploaded and local sample dirs removed.")
         except Exception as e:
             logger.error(
-                "S3 upload FAILED for %s -> s3://%s/%s. Keeping local archive and dirs. Error: %s",
+                "S3 upload FAILED for %s -> s3://%s/%s. Error: %s",
                 archive_path,
                 args.s3_bucket,
                 s3_key,
@@ -576,19 +664,27 @@ def main() -> None:
     pbar = tqdm(total=n_total, desc="Generating", unit="doc", dynamic_ncols=True, disable=False, file=sys.stdout)
     try:
         while done < n_total:
-            res = result_q.get()
+            try:
+                res = result_q.get(timeout=60)
+            except Empty:
+                alive = [p.is_alive() for p in workers]
+                logger.warning("No results for 60s. Workers alive=%s", alive)
+                if not any(alive):
+                    raise RuntimeError("All workers have exited but generation is incomplete")
+                continue
+                
             done += 1
             pbar.update(1)
 
             if not res.get("ok", False):
-                # logger.error(
-                #     "Failed to generate sample %d/%d (pic=%s). Error: %s\n%s",
-                #     res.get("idx", -1) + 1,
-                #     n_total,
-                #     args.pic,
-                #     res.get("error"),
-                #     res.get("traceback"),
-                # )
+                logger.error(
+                    "Failed to generate sample %d/%d (pic=%s). Error: %s\n%s",
+                    res.get("idx", -1) + 1,
+                    n_total,
+                    args.pic,
+                    res.get("error"),
+                    res.get("traceback"),
+                )
                 continue
 
             out_dir = str(res["out_dir"])
@@ -612,8 +708,8 @@ def main() -> None:
 
             # logger.info("Current batch: %.2f GB (target %.2f GB).", batch_bytes / (1024**3), target_bytes / (1024**3))
 
-            # if batch_bytes >= target_bytes:
-            #     flush_batch()
+            if batch_bytes >= target_bytes:
+                flush_batch()
     finally:
         pbar.close()
         # Ensure workers exit
@@ -622,7 +718,7 @@ def main() -> None:
                 p.join(timeout=1.0)
 
     # Flush remaining
-    #flush_batch()
+    flush_batch()
 
 
 if __name__ == "__main__":

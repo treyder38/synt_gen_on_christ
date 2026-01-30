@@ -11,7 +11,7 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
 
 mkdir -p "/home/jovyan/people/Glebov/synt_gen_2/logs_for_pic"
 
-for GPU in 0 1 2 3 4 5 6 7; do
+for GPU in 0 1 2; do
   PORT=$((BASE_PORT + GPU))
 
   echo "Starting vLLM on GPU=$GPU PORT=$PORT ..."
@@ -23,7 +23,7 @@ for GPU in 0 1 2 3 4 5 6 7; do
       --tensor-parallel-size 1 \
       --pipeline-parallel-size 1 \
       --gpu-memory-utilization 0.97 \
-      --max-model-len 4096 \
+      --max-model-len 5200 \
       --max-num-seqs "$MAX_NUM_SEQS" \
       --served-model-name "$MODEL" \
       > "/home/jovyan/people/Glebov/synt_gen_2/logs_for_pic/vllm_gpu${GPU}.log" 2>&1 &

@@ -82,7 +82,7 @@ def generate_code(persona: str, topic: str, model: str, data: str, figure_type: 
             {"role": "user", "content": prompt},
         ],
         temperature=0.4,
-        max_tokens=3000,
+        max_tokens=3600,
     )
 
     text = completion.choices[0].message.content
