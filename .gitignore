@@ -1,6 +1,7 @@
 # python
 document_pipeline/__pycache__/
 pict_data_pipeline/__pycache__/
+table_pipeline/__pycache__/
 utils/__pycache__/
 
 # jupyter
@@ -9,6 +10,7 @@ utils/__pycache__/
 # logs/results
 logs/
 logs_for_pic/
+logs_for_pic_on_ulitin/
 hf_cache/
 out/
 document_pipeline/out/

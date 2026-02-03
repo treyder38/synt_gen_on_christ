@@ -21,10 +21,7 @@ from utils.render_ans import render_blocks_json_to_pdf
 logger = logging.getLogger(__name__)
 
 
-OUT_ROOT = Path("/home/jovyan/people/Glebov/synt_gen_2/out")
-
-
-def _make_next_run_dir() -> Path:
+def make_next_run_dir(OUT_ROOT : Path) -> Path:
     """Create a unique run directory under out/<time>_<uuid>/.
 
     Time is UTC in format YYYYMMDDTHHMMSSZ to keep lexicographic order.
@@ -103,14 +100,10 @@ def augment_image(
                     p=0.7,
                 ),
                 A.Lambda(image=_bleed_through_image, p=0.6),
-                # Color cast: slightly yellowish (warm) OR grayish (desaturated)
                 A.OneOf(
                     [
-                        # Warm/yellowish: boost R+G and reduce B a bit
                         A.RGBShift(r_shift_limit=(0, 20), g_shift_limit=(0, 20), b_shift_limit=(-20, 0), p=1.0),
-                        # Grayish: desaturate / convert to gray
                         A.ToGray(p=1.0),
-                        # Mild desaturation without full grayscale
                         A.HueSaturationValue(hue_shift_limit=0, sat_shift_limit=(-35, -10), val_shift_limit=0, p=1.0),
                     ],
                     p=0.75,
@@ -126,10 +119,6 @@ def augment_image(
         out = aug(image=img)["image"]
         pil_out = Image.fromarray(out).convert("RGB")
 
-        # --- Real compression on disk ---
-        # Albumentations `ImageCompression` simulates artifacts but the final file size
-        # depends on how we save. Apply codec-level compression here.
-        # JPEG: strong, realistic scan-like compression
         q = 70
         pil_out.save(
             str(out_path),
@@ -143,11 +132,11 @@ def augment_image(
         doc.close()
 
 
-def doc_pipeline(sampled_persona: str, style_map: Dict[str, Dict[str, float]], base_url: str) -> Path:
+def doc_pipeline(sampled_persona: str, style_map: Dict[str, Dict[str, float]], out_path : str | Path, base_url: str) -> Path:
 
     MODEL = "mistralai/Mistral-Nemo-Instruct-2407"
 
-    run_dir = _make_next_run_dir()
+    run_dir = make_next_run_dir(Path(out_path))
     #logger.info("Run directory: %s", str(run_dir))
     
     topic = generate_topic(sampled_persona, model=MODEL, base_url=base_url)

@@ -64,7 +64,7 @@ def generate_json_with_sizes(
         b_type = b.get("type")
         content = b.get("content", "")
 
-        if b_type != "figure":
+        if b_type != "figure" and b_type != "table":
             # Per-type typography
             style = style_map.get(str(b_type))
             if not isinstance(style, dict):
@@ -136,7 +136,7 @@ def generate_json_with_sizes(
                 except Exception:
                     pass
 
-            # Choose figure max width similar to text blocks
+            # Choose figure/table max width similar to text blocks
             if i < split_idx:
                 max_width_px = 2080
             else:
@@ -163,10 +163,10 @@ def generate_json_with_sizes(
         b2 = dict(b)
         b2["bbox_size"] = [int(w), int(h)]
 
-        if b_type != "figure":
+        if b_type != "figure" and b_type != "table":
             b2["words"] = words_out
 
-        if lines != [] and b_type != "figure":
+        if lines != [] and (b_type != "figure" and  b_type != "table"):
             b2["lines"] = lines
 
         out_blocks.append(b2)

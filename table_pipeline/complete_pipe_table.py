@@ -9,12 +9,12 @@ from PIL import Image
 import fitz
 import os
 
-from pict_data_pipeline.topic_generation import generate_topic
-from pict_data_pipeline.data_generation import generate_data
-from pict_data_pipeline.code_generation import generate_code, save_generated_image
-from pict_data_pipeline.text_based_on_data import generate_text
-from pict_data_pipeline.text_split_with_image import split_to_blocks
-from pict_data_pipeline.layout_generation_with_image import generate_layout
+from table_pipeline.topic_generation import generate_topic
+from table_pipeline.data_generation import generate_data
+from table_pipeline.code_generation import generate_code, save_generated_table
+from table_pipeline.text_based_on_data import generate_text
+from table_pipeline.text_split_with_table import split_to_blocks
+from table_pipeline.layout_generation_with_table import generate_layout
 from utils.generate_json_with_sizes import generate_json_with_sizes
 from utils.render_ans import render_blocks_json_to_pdf
 
@@ -39,7 +39,7 @@ def save_jpeg(pdf_path: str, out_jpeg_path: str, dpi: int = 300, quality: int = 
     return out_jpeg_path
 
 
-def make_next_run_dir(OUT_ROOT : Path) -> Path:
+def make_next_run_dir(OUT_ROOT: Path) -> Path:
     """Create a unique run directory under out/<time>_<uuid>/.
 
     Time is UTC in format YYYYMMDDTHHMMSSZ to keep lexicographic order.
@@ -54,17 +54,17 @@ def make_next_run_dir(OUT_ROOT : Path) -> Path:
     return run_dir
 
 
-def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Dict[str, Dict[str, float]], 
-                out_path : str | Path, base_url: str, sbx: Any | None = None) -> Path:
+def table_pipeline(sampled_persona: str, style_map: Dict[str, Dict[str, float]], out_path : str | Path,
+                base_url: str, sbx: Any | None = None) -> Path:
 
-    MODEL = "Qwen/Qwen2.5-14B-Instruct"
+    MODEL = "Qwen/Qwen2.5-32B-Instruct"
 
     run_dir = make_next_run_dir(Path(out_path))
 
-    topic = generate_topic(sampled_persona, model = MODEL, figure_type=figure_type, base_url=base_url)
+    topic = generate_topic(sampled_persona, model = MODEL, base_url=base_url)
     # logger.info("Topic: %s", topic)
 
-    data = generate_data(sampled_persona, topic, model = MODEL, figure_type=figure_type, base_url=base_url)
+    data = generate_data(sampled_persona, topic, model = MODEL, base_url=base_url)
     # logger.info("Data: %s", data)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
@@ -74,7 +74,6 @@ def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Dict[str, Di
             topic,
             model=MODEL,
             data=data,
-            figure_type=figure_type,
             base_url=base_url
         )
         future_text = executor.submit(
@@ -92,14 +91,31 @@ def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Dict[str, Di
     # logger.info("Code: %s", code)
     # logger.info("Text: %s", text)
 
-    picture = save_generated_image(code, sbx=sbx)
+    table = save_generated_table(code, sbx=sbx)
 
-    split_json = split_to_blocks(text=text, figure_type=figure_type)
-    # Put the generated data into the figure block content
-    figure_payload = json.dumps(data, ensure_ascii=False)
+    # Save the rendered table image (BytesIO) into the run directory for debugging/inspection.
+    table_img_path = Path(run_dir) / "table.png"
+    try:
+        if hasattr(table, "getvalue"):
+            table_img_path.write_bytes(table.getvalue())
+            # Reset cursor so downstream consumers can read from the beginning.
+            try:
+                table.seek(0)
+            except Exception:
+                pass
+        elif isinstance(table, (bytes, bytearray)):
+            table_img_path.write_bytes(bytes(table))
+        else:
+            logger.warning("Unexpected table render type %s; not saved to %s", type(table), table_img_path)
+    except Exception as e:
+        logger.warning("Failed to save table render to %s: %s", table_img_path, e)
+
+    split_json = split_to_blocks(text=text)
+    # Put the generated data into the table block content
+    table_payload = json.dumps(data, ensure_ascii=False)
     for b in split_json.get("blocks", []):
-        if b.get("type") == "figure":
-            b["content"] = figure_payload
+        if b.get("type") == "table":
+            b["content"] = table_payload
             break
         
     out_path = f"{str(run_dir)}/split.json"
@@ -107,7 +123,7 @@ def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Dict[str, Di
     #     json.dump(split_json, f, ensure_ascii=False, indent=2)
     # logger.info("Split saved to: %s", out_path)
 
-    json_with_bbox_sizes = generate_json_with_sizes(split_json, style_map=style_map, picture=picture)
+    json_with_bbox_sizes = generate_json_with_sizes(split_json, style_map=style_map, picture=table)
     # out_path = f"{str(run_dir)}/json_with_bbox_sizes.json"
     # with open(out_path, "w", encoding="utf-8") as f:
     #     json.dump(json_with_bbox_sizes, f, ensure_ascii=False, indent=2)
@@ -125,7 +141,7 @@ def pic_pipeline(sampled_persona: str, figure_type: str, style_map: Dict[str, Di
         draw_frames=False,
         draw_word_bboxes=False,
         style_map=style_map,
-        picture=picture
+        picture=table
     )
     # logger.info("Render saved to: %s", pdf_path)
 

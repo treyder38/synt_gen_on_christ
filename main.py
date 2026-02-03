@@ -223,7 +223,7 @@ def safe_rmtree(path: str) -> None:
 @dataclass
 class GenTask:
     idx: int
-    pic: str
+    pipeline: str
     seed: int
 
 
@@ -263,6 +263,7 @@ def _worker_loop(
     personas_path: str,
     vllm_host: str,
     vllm_base_port: int,
+    samples_dir: str,
 ) -> None:
     """One worker pinned to a single GPU via CUDA_VISIBLE_DEVICES."""
     # IMPORTANT: must be set before importing torch/diffusers/etc.
@@ -270,28 +271,44 @@ def _worker_loop(
 
     vllm_port = int(vllm_base_port) + int(gpu_id)
     vllm_base_url = f"http://{vllm_host}:{vllm_port}"
+    samples_root = Path(samples_dir)
 
     # Import pipelines only inside the worker after CUDA pinning.
     from pict_data_pipeline.complete_pipe_pic import pic_pipeline
     from document_pipeline.complete_pipe_doc import doc_pipeline
+    from table_pipeline.complete_pipe_table import table_pipeline
 
     from e2b_code_interpreter import Sandbox
     from e2b.exceptions import RateLimitException
-    sbx = None  # sandbox на воркер (используется только для генерации картинок)
+    sbx = None
     sbx_created_at = 0.0
+
+    # E2B tuning: keep retries bounded to avoid multi-minute stalls.
+    SBX_CREATE_RETRIES = 3
+    SBX_CREATE_BACKOFF_START_S = 2.0
+    SBX_CREATE_BACKOFF_MAX_S = 20.0
+
+    PIC_RETRY_SLEEP_START_S = 2.0
+    PIC_RETRY_SLEEP_MAX_S = 15.0
 
     def _close_sbx() -> None:
         nonlocal sbx
-        if sbx is not None:
-            try:
-                # Prefer hard-kill if available to avoid leaving active sandboxes behind.
-                if hasattr(sbx, "kill"):
-                    sbx.kill()
-                else:
-                    sbx.close()
-            except Exception:
-                pass
-            sbx = None
+        if sbx is None:
+            return
+
+        import threading
+
+        _local_sbx = sbx
+        sbx = None
+
+        def _do_close() -> None:
+            _local_sbx.kill()
+
+        t = threading.Thread(target=_do_close, daemon=True)
+        t.start()
+        t.join(timeout=5.0)
+        if t.is_alive():
+            logger.warning("[gpu=%s] E2B: sandbox close/kill timed out; continuing", gpu_id)
 
     def _ensure_sbx() -> None:
         """Ensure a live sandbox exists and periodically recreate it.
@@ -309,29 +326,32 @@ def _worker_loop(
 
         _close_sbx()
 
-        backoff = 2.0
+        logger.info("[gpu=%s] E2B: creating sandbox...", gpu_id)
+        t_create0 = time.monotonic()
+        backoff = SBX_CREATE_BACKOFF_START_S
         last_err: Exception | None = None
-        for _ in range(5):
+        for attempt in range(SBX_CREATE_RETRIES):
             try:
                 # IMPORTANT: set sandbox lifetime at create time (otherwise it may expire quickly).
-                sbx = Sandbox.create(timeout=60 * 60)
-                # Extra safety if SDK supports resetting timeout.
-                if hasattr(sbx, "set_timeout"):
-                    try:
-                        sbx.set_timeout(60 * 60)
-                    except Exception:
-                        pass
+                t0 = time.monotonic()
+                sbx = Sandbox.create()
+                dt = time.monotonic() - t0
+                logger.info("[gpu=%s] E2B: sandbox created in %.2fs", gpu_id, dt)
+                sbx.set_timeout(60 * 60)
                 sbx_created_at = time.time()
                 return
             except RateLimitException as e:
                 last_err = e
+                logger.warning("[gpu=%s] E2B: sandbox create failed (attempt %d/%d): %s", gpu_id, attempt + 1, SBX_CREATE_RETRIES, e)
                 time.sleep(backoff)
-                backoff = min(backoff * 2.0, 60.0)
+                backoff = min(backoff * 2.0, SBX_CREATE_BACKOFF_MAX_S)
             except Exception as e:
                 last_err = e
+                logger.warning("[gpu=%s] E2B: sandbox create failed (attempt %d/%d): %s", gpu_id, attempt + 1, SBX_CREATE_RETRIES, e)
                 time.sleep(backoff)
-                backoff = min(backoff * 2.0, 60.0)
+                backoff = min(backoff * 2.0, SBX_CREATE_BACKOFF_MAX_S)
 
+        logger.error("[gpu=%s] E2B: failed to create sandbox after %.2fs", gpu_id, time.monotonic() - t_create0)
         raise RuntimeError(f"Failed to create E2B sandbox after retries: {last_err}")
 
     # Each process must register fonts in its own ReportLab registry.
@@ -354,10 +374,14 @@ def _worker_loop(
 
             sample_random_fonts_for_style_map(style_map, fonts_dir, seed=task.seed)
             sampled_persona = sample_persona(personas_path, seed=task.seed)
-            if task.pic == "n":
-                out_dir = doc_pipeline(sampled_persona, style_map, base_url=f"{vllm_base_url}/v1")
-            else:
+
+            if task.pipeline == "doc":
+                out_dir = doc_pipeline(sampled_persona, style_map, out_path = samples_root, base_url=f"{vllm_base_url}/v1")
+
+            elif task.pipeline == "pic":
+                t_sbx0 = time.monotonic()
                 _ensure_sbx()
+                logger.info("[gpu=%s idx=%s] E2B: ensure sandbox OK in %.2fs", gpu_id, task.idx, time.monotonic() - t_sbx0)
                 _figure_types = [
                     # Core 2D plots
                     "line plot",
@@ -405,40 +429,169 @@ def _worker_loop(
                 ]
                 figure_type = rng.choice(_figure_types)
                 try:
+                    t_pic0 = time.monotonic()
+                    logger.info("[gpu=%s idx=%s] pic_pipeline: start (type=%s)", gpu_id, task.idx, figure_type)
                     out_dir = pic_pipeline(
                         sampled_persona,
                         figure_type,
                         style_map,
+                        out_path = samples_root,
                         base_url=f"{vllm_base_url}/v1",
                         sbx=sbx,
                     )
+                    logger.info("[gpu=%s idx=%s] pic_pipeline: done in %.2fs", gpu_id, task.idx, time.monotonic() - t_pic0)
                 except Exception as e:
-                    # If sandbox expired / was GC'ed / connection issue, recreate once and retry.
+                    # Keep retries bounded to avoid multi-minute stalls.
                     msg = str(e)
                     low = msg.lower()
-                    sandboxish = (
-                        "sandbox" in low
-                        or "e2b" in low
-                        or "not found" in low
-                        or "was not found" in low
-                        or "code\":502" in low
-                        or "429" in low
-                        or "rate limit" in low
-                        or "timeout" in low
-                        or "connection" in low
+
+                    # Generated-code errors: recreating the sandbox will not help.
+                    if "executionerror" in low:
+                        raise
+
+                    is_rate_limit = ("rate limit" in low) or ("ratelimit" in low)
+                    is_not_found = ("not found" in low) or ("notfound" in low)
+                    is_timeoutish = ("timeout" in low) or ("timed out" in low)
+
+                    logger.warning(
+                        "[gpu=%s idx=%s] pic_pipeline: error after %.2fs: %s",
+                        gpu_id,
+                        task.idx,
+                        time.monotonic() - t_pic0 if 't_pic0' in locals() else float('nan'),
+                        msg,
                     )
-                    if sandboxish:
-                        _close_sbx()
-                        _ensure_sbx()
+
+                    # 1) Rate limit: wait a bit and retry ONCE without recreating sandbox.
+                    if is_rate_limit:
+                        sleep_s = min(PIC_RETRY_SLEEP_START_S * 2.0, PIC_RETRY_SLEEP_MAX_S)
+                        logger.warning("[gpu=%s idx=%s] E2B: rate limit; sleeping %.1fs then retry once", gpu_id, task.idx, sleep_s)
+                        time.sleep(sleep_s)
+                        t_pic1 = time.monotonic()
                         out_dir = pic_pipeline(
                             sampled_persona,
                             figure_type,
                             style_map,
+                            out_path = samples_root,
                             base_url=f"{vllm_base_url}/v1",
                             sbx=sbx,
                         )
+                        logger.info("[gpu=%s idx=%s] pic_pipeline: retry done in %.2fs", gpu_id, task.idx, time.monotonic() - t_pic1)
+                        
+                    # 2) Sandbox likely dead (404/not found): recreate and retry ONCE.
+                    elif is_not_found:
+                        logger.warning("[gpu=%s idx=%s] E2B: sandbox likely dead; recreating and retry once", gpu_id, task.idx)
+                        _close_sbx()
+                        t_sbx1 = time.monotonic()
+                        _ensure_sbx()
+                        logger.info("[gpu=%s idx=%s] E2B: recreated sandbox in %.2fs", gpu_id, task.idx, time.monotonic() - t_sbx1)
+                        t_pic1 = time.monotonic()
+                        out_dir = pic_pipeline(
+                            sampled_persona,
+                            figure_type,
+                            style_map,
+                            out_path = samples_root,
+                            base_url=f"{vllm_base_url}/v1",
+                            sbx=sbx,
+                        )
+                        logger.info("[gpu=%s idx=%s] pic_pipeline: retry after recreate done in %.2fs", gpu_id, task.idx, time.monotonic() - t_pic1)
+
+                    # 3) Timeout/connection issues: retry once without recreation; if still failing, fail fast.
+                    elif is_timeoutish:
+                        logger.warning("[gpu=%s idx=%s] E2B: timeout/connection; retry once without recreate", gpu_id, task.idx)
+                        t_pic1 = time.monotonic()
+                        out_dir = pic_pipeline(
+                            sampled_persona,
+                            figure_type,
+                            style_map,
+                            out_path = samples_root,
+                            base_url=f"{vllm_base_url}/v1",
+                            sbx=sbx,
+                        )
+                        logger.info("[gpu=%s idx=%s] pic_pipeline: retry done", gpu_id, task.idx, time.monotonic() - t_pic1)
+
                     else:
                         raise
+
+            elif task.pipeline == "table":
+                t_sbx0 = time.monotonic()
+                _ensure_sbx()
+                logger.info("[gpu=%s idx=%s] E2B: ensure sandbox OK in %.2fs", gpu_id, task.idx, time.monotonic() - t_sbx0)
+                try:
+                    t_pic0 = time.monotonic()
+                    logger.info("[gpu=%s idx=%s] table_pipeline: start", gpu_id, task.idx)
+                    out_dir = table_pipeline(
+                        sampled_persona,
+                        style_map,
+                        out_path = samples_root,
+                        base_url=f"{vllm_base_url}/v1",
+                        sbx=sbx,
+                    )
+                    logger.info("[gpu=%s idx=%s] table_pipeline: done in %.2fs", gpu_id, task.idx, time.monotonic() - t_pic0)
+                except Exception as e:
+                    # Keep retries bounded to avoid multi-minute stalls.
+                    msg = str(e)
+                    low = msg.lower()
+
+                    if "executionerror" in low:
+                        raise
+
+                    is_rate_limit = ("rate limit" in low) or ("ratelimit" in low)
+                    is_not_found = ("not found" in low) or ("notfound" in low)
+                    is_timeoutish = ("timeout" in low) or ("timed out" in low)
+
+                    logger.warning(
+                        "[gpu=%s idx=%s] pic_pipeline: error after %.2fs: %s",
+                        gpu_id,
+                        task.idx,
+                        time.monotonic() - t_pic0 if 't_pic0' in locals() else float('nan'),
+                        msg,
+                    )
+
+                    if is_rate_limit:
+                        sleep_s = min(PIC_RETRY_SLEEP_START_S * 2.0, PIC_RETRY_SLEEP_MAX_S)
+                        logger.warning("[gpu=%s idx=%s] E2B: rate limit; sleeping %.1fs then retry once", gpu_id, task.idx, sleep_s)
+                        time.sleep(sleep_s)
+                        t_pic1 = time.monotonic()
+                        out_dir = table_pipeline(
+                            sampled_persona,
+                            style_map,
+                            out_path = samples_root,
+                            base_url=f"{vllm_base_url}/v1",
+                            sbx=sbx,
+                        )
+                        logger.info("[gpu=%s idx=%s] table_pipeline: retry done in %.2fs", gpu_id, task.idx, time.monotonic() - t_pic1)
+                        
+                    elif is_not_found:
+                        logger.warning("[gpu=%s idx=%s] E2B: sandbox likely dead; recreating and retry once", gpu_id, task.idx)
+                        _close_sbx()
+                        t_sbx1 = time.monotonic()
+                        _ensure_sbx()
+                        logger.info("[gpu=%s idx=%s] E2B: recreated sandbox in %.2fs", gpu_id, task.idx, time.monotonic() - t_sbx1)
+                        t_pic1 = time.monotonic()
+                        out_dir = table_pipeline(
+                            sampled_persona,
+                            style_map,
+                            out_path = samples_root,
+                            base_url=f"{vllm_base_url}/v1",
+                            sbx=sbx,
+                        )
+                        logger.info("[gpu=%s idx=%s] table_pipeline: retry after recreate done in %.2fs", gpu_id, task.idx, time.monotonic() - t_pic1)
+
+                    elif is_timeoutish:
+                        logger.warning("[gpu=%s idx=%s] E2B: timeout/connection; retry once without recreate", gpu_id, task.idx)
+                        t_pic1 = time.monotonic()
+                        out_dir = table_pipeline(
+                            sampled_persona,
+                            style_map,
+                            out_path = samples_root,
+                            base_url=f"{vllm_base_url}/v1",
+                            sbx=sbx,
+                        )
+                        logger.info("[gpu=%s idx=%s] table_pipeline: retry done in %.2fs", gpu_id, task.idx, time.monotonic() - t_pic1)
+
+                    else:
+                        raise
+            
 
             sz = get_dir_size_bytes(out_dir)
             result_q.put({
@@ -472,11 +625,17 @@ def main() -> None:
 
     parser = ArgumentParser()
     parser.add_argument(
-        "--pic",
+        "--pipeline",
         type=str,
-        default="n",
-        choices=["y", "n"],
-        help="Generate pictures (y) or documents (n).",
+        default="doc",
+        choices=["doc", "pic", "table"],
+        help="The type of content to generate",
+    )
+    parser.add_argument(
+        "--out_root",
+        type=str,
+        default=None,
+        help="Root output directory where generated sample folders will be placed and where archives will be created.",
     )
     parser.add_argument(
         "--n_samples",
@@ -546,14 +705,21 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    out_root = Path(args.out_root)
+    samples_root = out_root / "samples"
+    archives_root = out_root / "archives"
+    samples_root.mkdir(parents=True, exist_ok=True)
+    archives_root.mkdir(parents=True, exist_ok=True)
+
     logger.info(
-        "S3 upload: enabled=%s bucket=%r prefix=%r endpoint=%r profile=%r region=%r",
+        "S3 upload: enabled=%s bucket=%r prefix=%r endpoint=%r profile=%r region=%r out_root=%r",
         bool(args.s3_bucket),
         args.s3_bucket,
         args.s3_prefix,
         args.s3_endpoint,
         args.aws_profile,
         args.aws_region,
+        args.out_root,
     )
 
     personas_path = "/home/jovyan/people/Glebov/synt_gen_2/utils/persona.jsonl"
@@ -571,10 +737,7 @@ def main() -> None:
 
         ts = time.strftime("%Y%m%d_%H%M%S")
         archive_name = f"batch_{batch_idx:05d}_{ts}_{uuid.uuid4().hex}.tar.gz"
-        if args.pic == "n":
-            archive_path = str(Path("/home/jovyan/people/Glebov/synt_gen_2/document_pipeline/out") / archive_name)
-        else:
-            archive_path = str(Path("/home/jovyan/people/Glebov/synt_gen_2/pict_data_pipeline/out") / archive_name)
+        archive_path = str(archives_root / archive_name)
 
         logger.info(
             "Archiving %d sample dirs (~%.2f GB) -> %s",
@@ -594,38 +757,44 @@ def main() -> None:
 
         prefix = args.s3_prefix.strip("/")
         s3_key = f"{prefix}/{archive_name}" if prefix else archive_name
-        logger.info("Uploading to s3://%s/%s", args.s3_bucket, s3_key)
-        try:
-            upload_file_to_s3(
-                archive_path,
-                args.s3_bucket,
-                s3_key,
-                profile=args.aws_profile,
-                region=args.aws_region,
-                endpoint_url=args.s3_endpoint,
-                max_put_bytes=4_900_000_000,
-            )
-            # After successful upload, delete local archive
-            os.remove(archive_path)
-            logger.info("Upload OK. Removed local archive: %s", archive_path)
+        if not args.s3_bucket:
+            # Upload disabled: keep archive locally, but remove sample dirs.
+            for d in batch_dirs:
+                safe_rmtree(d)
+            logger.info("Upload disabled. Kept local archive: %s", archive_path)
+        else:
+            logger.info("Uploading to s3://%s/%s", args.s3_bucket, s3_key)
+            try:
+                upload_file_to_s3(
+                    archive_path,
+                    args.s3_bucket,
+                    s3_key,
+                    profile=args.aws_profile,
+                    region=args.aws_region,
+                    endpoint_url=args.s3_endpoint,
+                    max_put_bytes=4_900_000_000,
+                )
+                # After successful upload, delete local archive
+                os.remove(archive_path)
+                logger.info("Upload OK. Removed local archive: %s", archive_path)
 
-            # Only after a successful upload (or if upload disabled) remove sample dirs.
-            for d in batch_dirs:
-                safe_rmtree(d)
-            logger.info("Batch uploaded and local sample dirs removed.")
-        except Exception as e:
-            logger.error(
-                "S3 upload FAILED for %s -> s3://%s/%s. Error: %s",
-                archive_path,
-                args.s3_bucket,
-                s3_key,
-                e,
-            )
-            logger.error("Traceback:\n%s", traceback.format_exc())
-            for d in batch_dirs:
-                safe_rmtree(d)
-            logger.info("Local sample dirs removed after the error.")
-            return
+                # Only after a successful upload remove sample dirs.
+                for d in batch_dirs:
+                    safe_rmtree(d)
+                logger.info("Batch uploaded and local sample dirs removed.")
+            except Exception as e:
+                logger.error(
+                    "S3 upload FAILED for %s -> s3://%s/%s. Error: %s",
+                    archive_path,
+                    args.s3_bucket,
+                    s3_key,
+                    e,
+                )
+                logger.error("Traceback:\n%s", traceback.format_exc())
+                for d in batch_dirs:
+                    safe_rmtree(d)
+                logger.info("Local sample dirs removed after the error.")
+                return
 
         batch_dirs = []
         batch_bytes = 0
@@ -644,7 +813,7 @@ def main() -> None:
     for gpu_id in range(n_workers):
         p = ctx.Process(
             target=_worker_loop,
-            args=(gpu_id, task_q, result_q, fonts_dir, personas_path, args.vllm_host, args.vllm_base_port),
+            args=(gpu_id, task_q, result_q, fonts_dir, personas_path, args.vllm_host, args.vllm_base_port, str(samples_root)),
             daemon=True,
         )
         p.start()
@@ -653,7 +822,7 @@ def main() -> None:
     # Enqueue tasks
     for i in range(n_total):
         seed = int(args.base_seed) + i
-        task_q.put(GenTask(idx=i, pic=args.pic, seed=seed))
+        task_q.put(GenTask(idx=i, pipeline=args.pipeline, seed=seed))
 
     # Tell workers to stop
     for _ in range(n_workers):
@@ -681,7 +850,7 @@ def main() -> None:
                     "Failed to generate sample %d/%d (pic=%s). Error: %s\n%s",
                     res.get("idx", -1) + 1,
                     n_total,
-                    args.pic,
+                    args.pipeline,
                     res.get("error"),
                     res.get("traceback"),
                 )
@@ -690,6 +859,8 @@ def main() -> None:
             out_dir = str(res["out_dir"])
             sz = int(res["size_bytes"])
             fonts = res.get("style_fonts", {})
+
+            sz = get_dir_size_bytes(out_dir)
 
             # logger.info(
             #     "Generated %d/%d: %s (%.2f MB). Fonts: title=%s header=%s paragraph=%s vLLM=%s",
@@ -708,8 +879,8 @@ def main() -> None:
 
             # logger.info("Current batch: %.2f GB (target %.2f GB).", batch_bytes / (1024**3), target_bytes / (1024**3))
 
-            if batch_bytes >= target_bytes:
-                flush_batch()
+            # if batch_bytes >= target_bytes:
+            #     flush_batch()
     finally:
         pbar.close()
         # Ensure workers exit
@@ -718,7 +889,7 @@ def main() -> None:
                 p.join(timeout=1.0)
 
     # Flush remaining
-    flush_batch()
+    #flush_batch()
 
 
 if __name__ == "__main__":

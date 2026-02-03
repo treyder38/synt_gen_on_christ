@@ -2,15 +2,15 @@ import os
 from openai import OpenAI
 from functools import lru_cache
 
-
 GENERATE_DOCUMENT_TOPIC_PROMPT = """You are an expert in data analysis and have a broad knowledge of different topics.
 My persona is: "{persona}"
-I want you to generate the topic for {figure_type} that I will be interested in or I may see during my daily life given my persona.
+I want you to generate a topics that I will be interested in or I may see during my daily life given my persona.
 
 Here are the requirements:
-1. The topic is a high-level summary of statistical distribution with some details, e.g., "population growth in Russia with a breakdown of the age groups."
-2. The topic is conditioned on the figure type. Please ensure the topic you provided can be best visualized in "{figure_type}".
-3. The topic must be in Russian, even if the persona is non-Russian."""
+1. The topic is a high-level summary of tabular data, e.g., "Sales data of a Russian grocery stores in 2021 Q1".
+2. The topic should be diverse to help me generate varied tables.
+3. The topic is conditioned on the table type.
+4. The topics must be in Russian, even if the persona is non-Russian."""
 
 
 @lru_cache(maxsize=32)
@@ -21,11 +21,11 @@ def _get_openai_client(base_url: str) -> OpenAI:
     )
 
 
-def generate_topic(persona: str, model: str, figure_type: str, base_url: str) -> str:
+def generate_topic(persona: str, model: str, base_url: str) -> str:
 
     client = _get_openai_client(base_url)
 
-    prompt = GENERATE_DOCUMENT_TOPIC_PROMPT.format(persona=persona, figure_type=figure_type)
+    prompt = GENERATE_DOCUMENT_TOPIC_PROMPT.format(persona=persona)
 
     completion = client.chat.completions.create(
         model=model,

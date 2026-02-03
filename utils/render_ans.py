@@ -122,7 +122,7 @@ def render_blocks_json_to_pdf(
                     c.restoreState()
 
         # Render image for figure blocks
-        if btype == "figure":
+        if btype == "figure" or btype == "table":
             if picture is None:
                 raise ValueError("picture must be provided when a block has type='figure'")
 
