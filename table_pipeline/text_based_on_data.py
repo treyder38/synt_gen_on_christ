@@ -10,7 +10,7 @@ You are given:
 - a persona: "{persona}"
 - structured data describing the topic: {topic} (referred to as "data")
 
-Here is the data in JSON format:
+Here is the data in pd.DataFrame format:
 <data>
 {data}
 </data>

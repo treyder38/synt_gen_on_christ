@@ -57,7 +57,7 @@ def make_next_run_dir(OUT_ROOT: Path) -> Path:
 def table_pipeline(sampled_persona: str, style_map: Dict[str, Dict[str, float]], out_path : str | Path,
                 base_url: str, sbx: Any | None = None) -> Path:
 
-    MODEL = "Qwen/Qwen2.5-32B-Instruct"
+    MODEL = "Qwen/Qwen2.5-14B-Instruct"
 
     run_dir = make_next_run_dir(Path(out_path))
 
@@ -65,7 +65,7 @@ def table_pipeline(sampled_persona: str, style_map: Dict[str, Dict[str, float]],
     # logger.info("Topic: %s", topic)
 
     data = generate_data(sampled_persona, topic, model = MODEL, base_url=base_url)
-    # logger.info("Data: %s", data)
+    logger.info("Data: %s", data)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_code = executor.submit(
@@ -88,7 +88,7 @@ def table_pipeline(sampled_persona: str, style_map: Dict[str, Dict[str, float]],
         code = future_code.result()
         text = future_text.result()
 
-    # logger.info("Code: %s", code)
+    logger.info("Code: %s", code)
     # logger.info("Text: %s", text)
 
     table = save_generated_table(code, sbx=sbx)

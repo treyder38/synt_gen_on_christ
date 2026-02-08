@@ -14,11 +14,11 @@ GENERATE_TABLE_CODE_PROMPT = """You are an expert Python data analyst who writes
 My persona is: "{persona}"
 I have data about {topic} to make a table.
 
-I will provide the data as a **JSON file**.  
-Your code must **extract all data from this JSON and load it into a single variable named `df` of type `pd.DataFrame`**.  
+I will provide the data as a pandas DataFrame object.  
+Your code must **assign all data to a single variable named `df` of type `pd.DataFrame`**.  
 This `df` variable will then be used throughout the rest of the code.
 
-Here is the JSON data:
+Here is the pandas DataFrame data:
 <data>
 {data}
 </data>
@@ -29,7 +29,6 @@ Your task:
 
 Requirements:
 1. Data extraction:
-   - Parse the provided JSON data.
    - Create a pandas DataFrame named **`df`**.
    - You may need to adjust the data format to fit the `matplotlib` specification.
    - The creation of `df` must be clearly visible in the code.

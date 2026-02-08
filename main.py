@@ -248,7 +248,7 @@ def build_style_map(rng: random.Random) -> dict[str, Any]:
             "font_name": "Caveat-SemiBold.ttf",
         },
         "paragraph": {
-            "font_size": float(rng.randint(9, 13)),
+            "font_size": float(rng.randint(11, 13)),
             "leading": float(rng.randint(8, 12)),
             "font_name": "Caveat-Regular.ttf",
         },
@@ -621,7 +621,8 @@ def _worker_loop(
 
 def main() -> None:
 
-    fonts_dir = "/home/jovyan/people/Glebov/synt_gen_2/ruhw_fonts"
+    fonts_dir = "/home/jovyan/people/ulitin/gigavision_data/ocrsynth/py/imagegen/hw_diffuz/synt_pipe_with_giga/ruhw_fonts"
+    personas_path = "/home/jovyan/people/Glebov/synt_gen_2/utils/persona.jsonl"
 
     parser = ArgumentParser()
     parser.add_argument(
@@ -701,7 +702,7 @@ def main() -> None:
         "--s3_endpoint",
         type=str,
         default=None,
-        help="Optional S3 endpoint URL for S3-compatible storages (e.g., https://obs.ru-moscow-1.hc.sbercloud.ru).",
+        help="Optional S3 endpoint URL for S3-compatible storages.",
     )
     args = parser.parse_args()
 
@@ -721,8 +722,6 @@ def main() -> None:
         args.aws_region,
         args.out_root,
     )
-
-    personas_path = "/home/jovyan/people/Glebov/synt_gen_2/utils/persona.jsonl"
 
     # Batching state
     target_bytes = int(args.batch_gb * 1024 * 1024 * 1024)
@@ -879,8 +878,8 @@ def main() -> None:
 
             # logger.info("Current batch: %.2f GB (target %.2f GB).", batch_bytes / (1024**3), target_bytes / (1024**3))
 
-            # if batch_bytes >= target_bytes:
-            #     flush_batch()
+            if batch_bytes >= target_bytes:
+                flush_batch()
     finally:
         pbar.close()
         # Ensure workers exit
@@ -889,7 +888,7 @@ def main() -> None:
                 p.join(timeout=1.0)
 
     # Flush remaining
-    #flush_batch()
+    flush_batch()
 
 
 if __name__ == "__main__":
