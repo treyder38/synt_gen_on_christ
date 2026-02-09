@@ -116,9 +116,10 @@ def augment_image(
             ]
         )
 
-        out = aug(image=img)["image"]
-        pil_out = Image.fromarray(out).convert("RGB")
+        # out = aug(image=img)["image"]
+        # pil_out = Image.fromarray(out).convert("RGB")
 
+        pil_out = Image.fromarray(img).convert("RGB")
         q = 70
         pil_out.save(
             str(out_path),
@@ -134,7 +135,7 @@ def augment_image(
 
 def doc_pipeline(sampled_persona: str, style_map: Dict[str, Dict[str, float]], out_path : str | Path, base_url: str) -> Path:
 
-    MODEL = "mistralai/Mistral-Nemo-Instruct-2407"
+    MODEL = "Qwen/Qwen2.5-14B-Instruct"
 
     run_dir = make_next_run_dir(Path(out_path))
     #logger.info("Run directory: %s", str(run_dir))

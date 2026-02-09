@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-MODEL="mistralai/Mistral-Nemo-Instruct-2407"
+MODEL="Qwen/Qwen2.5-14B-Instruct"
 HOST="0.0.0.0"
 BASE_PORT=8000
 
@@ -13,7 +13,7 @@ export OMP_NUM_THREADS="${OMP_NUM_THREADS:-8}"
 mkdir -p "/home/jovyan/people/Glebov/synt_gen_2/logs"
 mkdir -p "$HF_HOME"
 
-for GPU in 0 1 2 3 4 5 6; do
+for GPU in 0 1; do
   PORT=$((BASE_PORT + GPU))
 
   echo "Starting vLLM on GPU=$GPU PORT=$PORT ..."

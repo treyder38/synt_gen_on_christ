@@ -10,8 +10,7 @@ I need materials about "{topic}" that can be used to generate a realistic docume
 
 Here are the requirements:
 1. The materials must be directly related to the topic and customized according to the given persona.
-2. The materials must be realistic and grounded in Russian real-world context. Use real-world Russian entities, names, places, dates, and organizations where appropriate.
-   Do NOT use placeholder names such as xxA, xxB, John Doe, or template markers like [Name], [Date], etc.
+2. Do NOT use placeholder names such as xxA, xxB, John Doe, or template markers like [Name], [Date], etc.
 3. The materials should cover different relevant aspects of the topic to make the document informative.
 4. All materials must be written in Russian, even if the persona is non-Russian.
 5. Document MUST contain from 300 to 400 words.
@@ -23,7 +22,10 @@ Here are the requirements:
 - If lists are helpful for clarity, include bullet list OR numbered list.
 - Any list must be contextually appropriate (e.g., steps, criteria, pros/cons, checklist). If not appropriate, use normal paragraphs instead.
 - Include concrete numbers where appropriate. Numbers must be plausible and consistent with the topic.
-- Keep the tone professional and realistic; avoid generic fluff."""
+- Keep the tone professional and realistic; avoid generic fluff.
+7. Strict character set:
+- Do NOT use any English/Latin letters (A–Z, a–z). The whole document must be written using only Russian Cyrillic letters for words.
+- Do NOT use special symbols such as @, %, & anywhere in the text."""
 
 
 @lru_cache(maxsize=32)
@@ -35,21 +37,35 @@ def _get_openai_client(base_url: str) -> OpenAI:
 
 
 def _contains_non_latin_or_cyrillic_letters(text: str) -> bool:
-    """Return True if text contains alphabetic letters outside Latin/Cyrillic.
+    """Return True if text contains forbidden characters.
 
-    We allow:
-      - Latin letters: A-Z, a-z, plus Latin-1 Supplement/Extended blocks (to keep it strict we ONLY allow basic Latin).
-      - Cyrillic letters: including Ёё.
+    Forbidden:
+      - Any Latin letters (A-Z, a-z)
+      - Any alphabetic letters outside Cyrillic (including Ёё)
+      - Specific special symbols: @, %, &
 
-    Digits, punctuation, whitespace, and other symbols are allowed.
+    Allowed:
+      - Cyrillic letters (including Ёё)
+      - Digits, whitespace, and common punctuation (.,:;!?-()[]{}"' etc.)
     """
     if not text:
         return False
 
+    forbidden_symbols = {"@", "%", "&"}
+
     for ch in text:
+        if ch in forbidden_symbols:
+            return True
+
         if ch.isalpha():
             code = ord(ch)
+
+            # Disallow any basic Latin letters explicitly.
             is_basic_latin = (0x0041 <= code <= 0x005A) or (0x0061 <= code <= 0x007A)
+            if is_basic_latin:
+                return True
+
+            # Allow Cyrillic letters (including Ёё).
             is_cyrillic = (
                 (0x0400 <= code <= 0x04FF)  # Cyrillic
                 or (0x0500 <= code <= 0x052F)  # Cyrillic Supplement
@@ -57,7 +73,7 @@ def _contains_non_latin_or_cyrillic_letters(text: str) -> bool:
                 or (0xA640 <= code <= 0xA69F)  # Cyrillic Extended-B
                 or (0x1C80 <= code <= 0x1C8F)  # Cyrillic Extended-C
             )
-            if not (is_basic_latin or is_cyrillic):
+            if not is_cyrillic:
                 return True
 
     return False
@@ -83,7 +99,7 @@ def generate_text(persona: str, topic: str, model: str, base_url: str) -> str:
 
     if _contains_non_latin_or_cyrillic_letters(text):
         raise ValueError(
-            "Generated text contains letters outside English/Russian alphabets; aborting."
+            "Generated text contains forbidden characters (Latin letters, non-Cyrillic letters, or @/%/&); aborting."
         )
 
     return text

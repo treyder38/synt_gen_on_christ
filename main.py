@@ -846,7 +846,7 @@ def main() -> None:
 
             if not res.get("ok", False):
                 logger.error(
-                    "Failed to generate sample %d/%d (pic=%s). Error: %s\n%s",
+                    "Failed to generate sample %d/%d (type=%s). Error: %s\n%s",
                     res.get("idx", -1) + 1,
                     n_total,
                     args.pipeline,
