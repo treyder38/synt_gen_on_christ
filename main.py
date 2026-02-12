@@ -621,7 +621,7 @@ def _worker_loop(
 
 def main() -> None:
 
-    fonts_dir = "/home/jovyan/people/ulitin/gigavision_data/ocrsynth/py/imagegen/hw_diffuz/synt_pipe_with_giga/ruhw_fonts"
+    fonts_dir = "/home/jovyan/people/Glebov/synt_gen_2/ruhw_fonts_clear"
     personas_path = "/home/jovyan/people/Glebov/synt_gen_2/utils/persona.jsonl"
 
     parser = ArgumentParser()

@@ -1,10 +1,10 @@
-FROM nvcr.io/nvidia/pytorch:23.05-py3
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
 
-RUN curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj bin/micromamba \
- && mv bin/micromamba /usr/local/bin/micromamba
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3-pip \
+    && ln -s /usr/bin/python3.10 /usr/bin/python \
+    && apt-get clean
 
-COPY environment.yml /tmp/environment.yml
-RUN micromamba create -y -n env -f /tmp/environment.yml \
- && micromamba clean -a -y
-
-ENV PATH=/opt/conda/envs/env/bin:$PATH
+COPY requirements.txt /tmp/
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
